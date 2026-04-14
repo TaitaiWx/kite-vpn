@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            goos: darwin
+            goarch: arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            goos: darwin
+            goarch: amd64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            goos: linux
+            goarch: amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            goos: windows
+            goarch: amd64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Node + pnpm ──
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ── Go (build mihomo engine) ──
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: packages/engine/go.sum
+
+      - name: Build mihomo sidecar
+        shell: bash
+        run: |
+          cd packages/engine
+          EXT=""
+          [ "${{ matrix.goos }}" = "windows" ] && EXT=".exe"
+          mkdir -p ../../apps/desktop/src-tauri/binaries
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -tags with_gvisor -ldflags "-s -w" \
+            -o ../../apps/desktop/src-tauri/binaries/mihomo-${{ matrix.target }}${EXT} .
+
+      # ── GeoIP databases ──
+      - name: Download GeoIP
+        shell: bash
+        run: |
+          mkdir -p apps/desktop/src-tauri/resources
+          curl -L -o apps/desktop/src-tauri/resources/geoip.dat \
+            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat
+          curl -L -o apps/desktop/src-tauri/resources/geosite.dat \
+            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat
+          curl -L -o apps/desktop/src-tauri/resources/country.mmdb \
+            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/country.mmdb
+
+      # ── Rust ──
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # ── Linux deps ──
+      - name: Install Linux deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # ── Build TS ──
+      - name: Build frontend
+        run: pnpm -w run build
+
+      # ── Tauri build ──
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Kite ${{ github.ref_name }}'
+          releaseBody: |
+            ## Kite ${{ github.ref_name }}
+
+            跨平台代理客户端，内置多订阅聚合。
+
+            ### 下载
+            - **macOS (Apple Silicon)**: `.dmg` 文件
+            - **macOS (Intel)**: `.dmg` 文件
+            - **Windows**: `.msi` 安装包
+            - **Linux**: `.AppImage` 或 `.deb`
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}
+
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: packages/engine/go.sum
+
+      - name: Build mihomo for Android ARM64
+        run: |
+          cd packages/engine
+          mkdir -p ../../apps/mobile/src-tauri/libs/arm64-v8a
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 \
+            go build -trimpath -tags with_gvisor -ldflags "-s -w" \
+            -o ../../apps/mobile/src-tauri/libs/arm64-v8a/libmihomo .
+
+      - name: Build frontend
+        run: pnpm -w run build
+
+      - name: Init Android
+        run: cd apps/mobile && npx @tauri-apps/cli android init
+
+      - name: Build APK
+        run: cd apps/mobile && npx @tauri-apps/cli android build --apk
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kite-vpn-android
+          path: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/
+
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Build frontend
+        run: pnpm -w run build
+
+      - name: Init iOS
+        run: cd apps/mobile && npx @tauri-apps/cli ios init
+
+      - name: Build iOS
+        run: cd apps/mobile && npx @tauri-apps/cli ios build
+        continue-on-error: true

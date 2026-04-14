@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Kite",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "shell:allow-execute",
+    "process:default",
+    "os:default",
+    "dialog:default",
+    "fs:default",
+    "notification:default",
+    "updater:default"
+  ]
+}

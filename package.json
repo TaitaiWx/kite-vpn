@@ -1,0 +1,33 @@
+{
+  "name": "kite-vpn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform proxy client with built-in subscription merging",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm --filter @kite-vpn/ui dev",
+    "dev:desktop": "pnpm --filter @kite-vpn/desktop tauri dev",
+    "dev:android": "pnpm --filter @kite-vpn/mobile tauri android dev",
+    "dev:ios": "pnpm --filter @kite-vpn/mobile tauri ios dev",
+    "build": "pnpm run build:types && pnpm run build:core && pnpm run build:ui",
+    "build:types": "pnpm --filter @kite-vpn/types build",
+    "build:core": "pnpm --filter @kite-vpn/core build",
+    "build:ui": "pnpm --filter @kite-vpn/ui build",
+    "build:engine": "pnpm --filter @kite-vpn/engine build:current",
+    "build:engine:all": "pnpm --filter @kite-vpn/engine build",
+    "build:desktop": "pnpm run build:engine && pnpm -w run build && pnpm --filter @kite-vpn/desktop tauri build",
+    "test": "pnpm --filter @kite-vpn/core test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "clean": "pnpm -r run clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

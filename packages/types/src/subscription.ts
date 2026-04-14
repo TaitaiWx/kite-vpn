@@ -1,0 +1,142 @@
+/**
+ * @kite-vpn/types — Subscription & merge strategy types
+ *
+ * Defines the data shapes for proxy subscriptions, merge/deduplication
+ * strategies, and merged profiles that combine multiple subscriptions
+ * into a single usable configuration.
+ *
+ * NO `any` type is used anywhere — all dynamic values use `unknown`,
+ * `Record<string, unknown>`, discriminated unions, or specific types.
+ */
+
+import type { ProxyNode } from './proxy.js'
+import type { ProxyGroupConfig, RoutingRule } from './config.js'
+
+// ---------------------------------------------------------------------------
+// Subscription
+// ---------------------------------------------------------------------------
+
+/** The lifecycle status of a single subscription update operation. */
+export type SubscriptionStatus = 'idle' | 'updating' | 'success' | 'error'
+
+/** Bandwidth / quota information returned by some subscription providers. */
+export interface SubscriptionUserInfo {
+  /** Bytes uploaded since the quota period started. */
+  upload: number
+  /** Bytes downloaded since the quota period started. */
+  download: number
+  /** Total byte allowance for the current period. */
+  total: number
+  /** When the current quota period expires (if provided by the provider). */
+  expire?: Date
+}
+
+/**
+ * A single proxy subscription that resolves to a list of {@link ProxyNode}s.
+ *
+ * Subscriptions are fetched from a remote URL, parsed, and stored locally so
+ * the UI can display them and the engine can consume them.
+ */
+export interface Subscription {
+  /** Unique identifier (UUID v4). */
+  id: string
+  /** Human-readable label chosen by the user. */
+  name: string
+  /** Remote URL that returns a proxy-node list (base64, YAML, JSON, …). */
+  url: string
+  /** Whether the subscription is active and its nodes should be considered. */
+  enabled: boolean
+  /** Proxy nodes resolved from the most recent fetch. */
+  nodes: ProxyNode[]
+  /** Timestamp of the last successful update. */
+  lastUpdate?: Date
+  /** How often (in hours) the subscription should be automatically refreshed. */
+  updateIntervalHours: number
+  /** Bandwidth / quota information extracted from the response headers. */
+  userInfo?: SubscriptionUserInfo
+  /** Human-readable error message from the last failed update, if any. */
+  error?: string
+  /** Current update lifecycle status. */
+  status: SubscriptionStatus
+}
+
+// ---------------------------------------------------------------------------
+// Merge & deduplication strategies
+// ---------------------------------------------------------------------------
+
+/** How duplicate nodes across subscriptions are detected. */
+export type DeduplicationStrategy =
+  | 'by_name'
+  | 'by_server'
+  | 'by_name_and_server'
+  | 'none'
+
+/** What to do when two nodes share the same display name. */
+export type NameConflictStrategy = 'rename' | 'skip' | 'override'
+
+/** How nodes are grouped inside the merged profile. */
+export type GroupByStrategy = 'source' | 'region' | 'protocol' | 'none'
+
+/**
+ * A single rename rule applied to node names during the merge process.
+ *
+ * The `pattern` is compiled as a JavaScript `RegExp` at runtime.
+ */
+export interface RenameRule {
+  /** Regular expression pattern matched against the node name. */
+  pattern: string
+  /** Replacement string (may contain capture-group references like `$1`). */
+  replacement: string
+}
+
+/**
+ * Controls how nodes from multiple subscriptions are combined into a
+ * single coherent profile that the engine can consume.
+ */
+export interface MergeStrategy {
+  /** Strategy used to detect and remove duplicate nodes. */
+  deduplication: DeduplicationStrategy
+  /** How to handle nodes with identical display names. */
+  nameConflict: NameConflictStrategy
+  /** How nodes are organised into proxy groups. */
+  groupBy: GroupByStrategy
+  /**
+   * When `groupBy` is `'region'`, this determines the type of proxy group
+   * created for each region bucket.
+   */
+  regionGroupMode: 'select' | 'url-test' | 'fallback'
+  /** Regex patterns — nodes whose names match any pattern are excluded. */
+  excludePatterns: string[]
+  /** Regex patterns — when non-empty, only nodes matching are included. */
+  includePatterns: string[]
+  /** Ordered list of rename rules applied to every node name. */
+  renameRules: RenameRule[]
+}
+
+// ---------------------------------------------------------------------------
+// Merged profile
+// ---------------------------------------------------------------------------
+
+/**
+ * A merged profile is the *output* of combining one or more subscriptions
+ * with a {@link MergeStrategy}.  It is the artefact that gets written to
+ * disk as engine-compatible YAML and activated at runtime.
+ */
+export interface MergedProfile {
+  /** Unique identifier (UUID v4). */
+  id: string
+  /** Human-readable profile name. */
+  name: string
+  /** IDs of the subscriptions included in this merge. */
+  subscriptionIds: string[]
+  /** The merge strategy that produced this profile. */
+  strategy: MergeStrategy
+  /** Proxy groups generated by the merge (select, url-test, …). */
+  groups: ProxyGroupConfig[]
+  /** Routing rules attached to this profile. */
+  rules: RoutingRule[]
+  /** When this profile was first created. */
+  createdAt: Date
+  /** When this profile was last regenerated or edited. */
+  updatedAt: Date
+}

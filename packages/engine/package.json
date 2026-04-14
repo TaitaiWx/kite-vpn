@@ -1,0 +1,14 @@
+{
+  "name": "@kite-vpn/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "mihomo proxy engine (Go source, compiled to binary)",
+  "scripts": {
+    "build": "bash scripts/build.sh && bash scripts/download-geodata.sh",
+    "build:current": "bash scripts/build.sh current && bash scripts/download-geodata.sh",
+    "build:desktop": "bash scripts/build.sh desktop && bash scripts/download-geodata.sh",
+    "build:mobile": "bash scripts/build.sh mobile",
+    "build:all": "bash scripts/build.sh && bash scripts/download-geodata.sh",
+    "clean": "rm -rf build/"
+  }
+}

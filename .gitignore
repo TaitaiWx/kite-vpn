@@ -1,0 +1,54 @@
+node_modules/
+dist/
+build/
+.output/
+*.tsbuildinfo
+
+# Tauri
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
+packages/mobile/src-tauri/target/
+packages/mobile/src-tauri/gen/
+
+# Engine binaries & build
+packages/engine/build/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/resources/*.dat
+apps/desktop/src-tauri/resources/*.mmdb
+
+# Tauri (apps)
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/mobile/src-tauri/target/
+apps/mobile/src-tauri/gen/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+coverage/
+
+# Cache
+.turbo/
+# 签名密钥
+.tauri-signing-key
+apps/mobile/src-tauri/libs/*/libmihomo

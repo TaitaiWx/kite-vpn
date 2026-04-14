@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@kite-vpn/types": ["../types/src"],
+      "@kite-vpn/types/*": ["../types/src/*"],
+    },
+  },
+  "include": ["src/**/*"],
+}

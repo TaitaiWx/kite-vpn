@@ -1,0 +1,31 @@
+[package]
+name = "kite-vpn-desktop"
+version = "0.1.0"
+description = "Kite Desktop - Cross-platform proxy client"
+authors = [""]
+edition = "2021"
+
+[lib]
+name = "kite_vpn_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri-plugin-shell = "2"
+tauri-plugin-process = "2"
+tauri-plugin-os = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", features = ["json", "native-tls"] }
+urlencoding = "2"
+flate2 = "1"
+tauri-plugin-updater = "2"
+dirs = "6"
