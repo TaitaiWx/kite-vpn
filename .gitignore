@@ -52,3 +52,4 @@ coverage/
 # 签名密钥
 .tauri-signing-key
 apps/mobile/src-tauri/libs/*/libmihomo
+apps/desktop/dist/

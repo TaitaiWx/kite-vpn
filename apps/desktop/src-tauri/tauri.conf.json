@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "identifier": "com.kite-vpn.desktop",
   "build": {
-    "beforeDevCommand": "cd ../../packages/ui && pnpm dev",
+    "beforeDevCommand": "pnpm --filter @kite-vpn/ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cd ../../packages/ui && pnpm build",
-    "frontendDist": "../../packages/ui/dist"
+    "beforeBuildCommand": "pnpm --filter @kite-vpn/ui build",
+    "frontendDist": "../../../packages/ui/dist"
   },
   "app": {
     "withGlobalTauri": true,

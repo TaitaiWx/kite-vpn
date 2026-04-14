@@ -2045,8 +2045,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "kite-desktop"
-version = "0.1.0"
+name = "kite-vpn-desktop"
+version = "1.0.0"
 dependencies = [
  "dirs",
  "flate2",
