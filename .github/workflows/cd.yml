@@ -1,4 +1,4 @@
-name: Release
+name: CD
 
 on:
   push:
@@ -9,8 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build (${{ matrix.target }})
+  # ══ 桌面端：构建 + 上传到 GitHub Release ══
+  desktop:
+    name: Desktop (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Node + pnpm ──
       - uses: pnpm/action-setup@v4
         with:
           version: 9
@@ -48,7 +48,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # ── Go (build mihomo engine) ──
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
@@ -58,66 +57,61 @@ jobs:
         shell: bash
         run: |
           cd packages/engine
-          EXT=""
-          [ "${{ matrix.goos }}" = "windows" ] && EXT=".exe"
+          EXT=""; [ "${{ matrix.goos }}" = "windows" ] && EXT=".exe"
           mkdir -p ../../apps/desktop/src-tauri/binaries
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -trimpath -tags with_gvisor -ldflags "-s -w" \
             -o ../../apps/desktop/src-tauri/binaries/mihomo-${{ matrix.target }}${EXT} .
 
-      # ── GeoIP databases ──
       - name: Download GeoIP
         shell: bash
         run: |
           mkdir -p apps/desktop/src-tauri/resources
-          curl -L -o apps/desktop/src-tauri/resources/geoip.dat \
-            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat
-          curl -L -o apps/desktop/src-tauri/resources/geosite.dat \
-            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat
-          curl -L -o apps/desktop/src-tauri/resources/country.mmdb \
-            https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/country.mmdb
+          curl -sL -o apps/desktop/src-tauri/resources/geoip.dat https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.dat
+          curl -sL -o apps/desktop/src-tauri/resources/geosite.dat https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat
+          curl -sL -o apps/desktop/src-tauri/resources/country.mmdb https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/country.mmdb
 
-      # ── Rust ──
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      # ── Linux deps ──
       - name: Install Linux deps
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      # ── Build TS ──
       - name: Build frontend
         run: pnpm -w run build
 
-      # ── Tauri build ──
-      - name: Build Tauri app
+      - name: Build & Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
-          releaseName: 'Kite ${{ github.ref_name }}'
+          releaseName: 'Kite VPN ${{ github.ref_name }}'
           releaseBody: |
-            ## Kite ${{ github.ref_name }}
+            ## Kite VPN ${{ github.ref_name }}
 
             跨平台代理客户端，内置多订阅聚合。
 
             ### 下载
-            - **macOS (Apple Silicon)**: `.dmg` 文件
-            - **macOS (Intel)**: `.dmg` 文件
-            - **Windows**: `.msi` 安装包
-            - **Linux**: `.AppImage` 或 `.deb`
+            | 平台 | 格式 |
+            |------|------|
+            | macOS (Apple Silicon) | `.dmg` |
+            | macOS (Intel) | `.dmg` |
+            | Windows | `.msi` |
+            | Linux | `.AppImage` / `.deb` |
+            | Android | `.apk` |
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
 
-  build-android:
-    name: Build Android
+  # ══ Android：构建 APK + 上传到 Release ══
+  android:
+    name: Android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +139,7 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r26b
 
@@ -153,7 +148,7 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: packages/engine/go.sum
 
-      - name: Build mihomo for Android ARM64
+      - name: Build mihomo for Android
         run: |
           cd packages/engine
           mkdir -p ../../apps/mobile/src-tauri/libs/arm64-v8a
@@ -172,14 +167,18 @@ jobs:
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: kite-vpn-android
-          path: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/
+          files: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-ios:
-    name: Build iOS
+  # ══ iOS（需要 Apple 开发者账号）══
+  ios:
+    name: iOS
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -201,9 +200,8 @@ jobs:
       - name: Build frontend
         run: pnpm -w run build
 
-      - name: Init iOS
-        run: cd apps/mobile && npx @tauri-apps/cli ios init
-
-      - name: Build iOS
-        run: cd apps/mobile && npx @tauri-apps/cli ios build
-        continue-on-error: true
+      - name: Init & Build iOS
+        run: |
+          cd apps/mobile
+          npx @tauri-apps/cli ios init
+          npx @tauri-apps/cli ios build

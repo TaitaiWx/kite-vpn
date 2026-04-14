@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Check & Lint
+    name: Check & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,8 +33,8 @@ jobs:
       - name: Unit tests
         run: pnpm --filter @kite-vpn/core test
 
-  build-ui:
-    name: Build UI
+  rust-check:
+    name: Rust Check
     runs-on: ubuntu-latest
     needs: check
     steps:
@@ -52,57 +52,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -w run build
 
-  build-engine:
-    name: Build Engine (${{ matrix.goos }}-${{ matrix.goarch }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache-dependency-path: packages/engine/go.sum
-
-      - name: Build mihomo
-        run: |
-          cd packages/engine
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -trimpath -tags with_gvisor -ldflags "-s -w" -o build/mihomo-${{ matrix.goos }}-${{ matrix.goarch }} .
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mihomo-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: packages/engine/build/
-
-  check-rust:
-    name: Rust Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build UI (needed for Tauri)
-        run: pnpm -w run build
-
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -115,6 +64,4 @@ jobs:
           touch apps/desktop/src-tauri/resources/.gitkeep
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Cargo check
-        run: cd apps/desktop/src-tauri && cargo check
+      - run: cd apps/desktop/src-tauri && cargo check
