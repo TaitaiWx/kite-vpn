@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { generateMihomoConfig, DEFAULT_ENGINE_CONFIG, DEFAULT_RULES } from '../config/index.js'
 import { generateAppRuleProviders, generateAppRules } from '../config/app-rules.js'
-import type { ProxyNode, ProxyGroupConfig } from '@kite/types'
+import type { ProxyNode, ProxyGroupConfig } from '@kite-vpn/types'
 import { parse as parseYaml } from 'yaml'
 
 const testNodes: ProxyNode[] = [

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mergeSubscriptions } from '../subscription/merger.js'
-import type { ProxyNode, MergeStrategy } from '@kite/types'
+import type { ProxyNode, MergeStrategy } from '@kite-vpn/types'
 
 function makeNode(id: string, name: string, server: string, port: number, region?: string): ProxyNode {
   return {
