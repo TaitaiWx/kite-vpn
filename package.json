@@ -20,7 +20,11 @@
     "test": "pnpm --filter @kite-vpn/core test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
-    "clean": "pnpm -r run clean && rimraf node_modules"
+    "clean": "pnpm -r run clean && rimraf node_modules",
+    "release:beta": "npm version prerelease --preid=beta && git push origin main --follow-tags",
+    "release:patch": "npm version patch && git push origin main --follow-tags",
+    "release:minor": "npm version minor && git push origin main --follow-tags",
+    "release:major": "npm version major && git push origin main --follow-tags"
   },
   "devDependencies": {
     "rimraf": "^6.0.1",
