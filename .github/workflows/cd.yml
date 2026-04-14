@@ -84,30 +84,26 @@ jobs:
       - name: Build frontend
         run: pnpm -w run build
 
-      - name: Build & Release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Tauri app
+        working-directory: apps/desktop
+        run: pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Kite VPN ${{ github.ref_name }}'
-          releaseBody: |
+          tag_name: ${{ github.ref_name }}
+          name: 'Kite VPN ${{ github.ref_name }}'
+          body: |
             ## Kite VPN ${{ github.ref_name }}
 
             跨平台代理客户端，内置多订阅聚合。
-
-            ### 下载
-            | 平台 | 格式 |
-            |------|------|
-            | macOS (Apple Silicon) | `.dmg` |
-            | macOS (Intel) | `.dmg` |
-            | Windows | `.msi` |
-            | Linux | `.AppImage` / `.deb` |
-            | Android | `.apk` |
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.target }}
+          files: |
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ══ Android：构建 APK + 上传到 Release ══
   android:

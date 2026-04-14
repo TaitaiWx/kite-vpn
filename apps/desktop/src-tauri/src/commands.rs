@@ -607,14 +607,14 @@ pub async fn set_autostart(enabled: bool, _app: AppHandle) -> IpcResult<bool> {
     #[cfg(target_os = "macos")]
     {
         let plist_dir = dirs::home_dir().unwrap().join("Library/LaunchAgents");
-        let plist_path = plist_dir.join("com.kite.app.plist");
+        let plist_path = plist_dir.join("com.kite-vpn.desktop.plist");
         if enabled {
             let plist = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.kite.app</string>
+  <key>Label</key><string>com.kite-vpn.desktop</string>
   <key>ProgramArguments</key><array><string>{}</string></array>
   <key>RunAtLoad</key><true/>
 </dict>
