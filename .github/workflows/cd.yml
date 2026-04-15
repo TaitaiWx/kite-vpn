@@ -53,6 +53,12 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: packages/engine/go.sum
 
+      - name: Download Go modules
+        working-directory: packages/engine
+        env:
+          GOPROXY: https://proxy.golang.org,https://goproxy.io,direct
+        run: go mod download
+
       - name: Build mihomo sidecar
         shell: bash
         run: |
@@ -155,6 +161,9 @@ jobs:
           cache-dependency-path: packages/engine/go.sum
 
       - name: Build mihomo for Android
+        env:
+          GOPROXY: https://proxy.golang.org,https://goproxy.io,direct
+          GONOSUMCHECK: "*"
         run: |
           cd packages/engine
           mkdir -p ../../apps/mobile/src-tauri/libs/arm64-v8a
