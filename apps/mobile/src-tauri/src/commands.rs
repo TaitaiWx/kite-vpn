@@ -70,7 +70,10 @@ pub async fn engine_start(app: AppHandle) -> IpcResult<EngineInfo> {
 
     // 查找 mihomo 二进制（打包在 libs/ 目录中）
     let mihomo_path = {
-        let data = get_data_dir(&app)?;
+        let data = match get_data_dir(&app) {
+            Ok(d) => d,
+            Err(e) => return IpcResult::err(e),
+        };
         let local_bin = data.join("mihomo");
         if local_bin.exists() {
             local_bin.to_string_lossy().to_string()
