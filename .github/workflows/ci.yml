@@ -64,4 +64,9 @@ jobs:
           touch apps/desktop/src-tauri/resources/.gitkeep
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
       - run: cd apps/desktop/src-tauri && cargo check
