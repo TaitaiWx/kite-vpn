@@ -87,6 +87,8 @@ jobs:
       - name: Build Tauri app
         working-directory: apps/desktop
         run: pnpm tauri build --target ${{ matrix.target }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -170,34 +172,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ══ iOS（需要 Apple 开发者账号）══
-  ios:
-    name: iOS
-    runs-on: macos-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios
-
-      - name: Build frontend
-        run: pnpm -w run build
-
-      - name: Init & Build iOS
-        run: |
-          cd apps/mobile
-          npx @tauri-apps/cli ios init
-          npx @tauri-apps/cli ios build
+  # ══ iOS 暂不构建（需要 Apple Developer Program + 签名证书）══
+  # 配置好 Apple Developer Team ID 后取消注释
+  # ios:
+  #   name: iOS
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: 22, cache: pnpm }
+  #     - run: pnpm install --frozen-lockfile
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with: { targets: aarch64-apple-ios }
+  #     - run: pnpm -w run build
+  #     - run: cd apps/mobile && npx @tauri-apps/cli ios init && npx @tauri-apps/cli ios build

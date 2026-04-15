@@ -67,8 +67,9 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/nicekid1/kite/releases/latest/download/latest.json"
-      ]
+        "https://github.com/nicekid1/kite-vpn/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0MUQwOTE0ODRENkNBMTcKUldRWHl0YUVGQWtkTkVlcUErLzBESVZGcy84N3BQejZUQWdTUm5kaU1oNGFHZGY3aEdvR09NZkYK"
     }
   }
 }

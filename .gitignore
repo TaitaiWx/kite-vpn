@@ -53,3 +53,4 @@ coverage/
 .tauri-signing-key
 apps/mobile/src-tauri/libs/*/libmihomo
 apps/desktop/dist/
+.tauri-private*
