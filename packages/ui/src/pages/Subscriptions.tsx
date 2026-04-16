@@ -28,12 +28,22 @@ import {
   HardDrive,
   Link2,
   Zap,
+  FolderSearch,
+  FileCode,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { Subscription, SubscriptionStatus } from '@kite-vpn/types'
 import { useSubscriptionStore } from '@/stores/subscription'
-import { getMockSubscriptions } from '@/lib/ipc'
+import { getMockSubscriptions, invoke } from '@/lib/ipc'
 import { formatBytes, formatDate, formatRelativeTime } from '@/lib/format'
+import { toast } from '@/stores/toast'
+
+interface LocalClashConfig {
+  path: string
+  name: string
+  size: number
+  mtime_secs: number
+}
 
 // ---------------------------------------------------------------------------
 // Status visual map
@@ -517,7 +527,33 @@ export function Subscriptions() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [localConfigs, setLocalConfigs] = useState<LocalClashConfig[]>([])
+  const [importingPath, setImportingPath] = useState<string | null>(null)
   const displaySubs = isDemo ? getMockSubscriptions() : subscriptions
+
+  const openImport = useCallback(() => {
+    setImportOpen(true)
+    void (async () => {
+      const res = await invoke<LocalClashConfig[]>('scan_local_clash_configs', {})
+      if (res.success && res.data) setLocalConfigs(res.data)
+      else toast(res.error ?? '扫描失败', 'error')
+    })()
+  }, [])
+
+  const doImport = useCallback((path: string) => {
+    setImportingPath(path)
+    void (async () => {
+      const res = await invoke<string>('import_local_clash_config', { sourcePath: path })
+      setImportingPath(null)
+      if (res.success) {
+        toast(`导入成功：${res.data ?? ''}。重启引擎生效。`, 'success')
+        setImportOpen(false)
+      } else {
+        toast(res.error ?? '导入失败', 'error')
+      }
+    })()
+  }, [])
 
   // Initial load
   useEffect(() => {
@@ -604,6 +640,16 @@ export function Subscriptions() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={openImport}
+            className="btn-secondary text-xs py-1.5 px-3"
+            title="扫描本地已有的 Clash / ClashX / Clash Verge 配置"
+          >
+            <FolderSearch className="h-3.5 w-3.5" />
+            <span>从本地导入</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleUpdateAll}
             disabled={updatingAll}
             className="btn-secondary text-xs py-1.5 px-3"
@@ -670,6 +716,70 @@ export function Subscriptions() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
       />
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-surface-1 border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+              <div>
+                <h2 className="text-[14px] font-semibold">从本地导入 Clash 配置</h2>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  扫描系统中 ClashX / ClashX Pro / Clash Verge / Clash for Windows 的配置，选一个作为 Kite 的基础配置
+                </p>
+              </div>
+              <button type="button" onClick={() => setImportOpen(false)} className="btn-ghost p-1.5">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {localConfigs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <FileCode className="h-8 w-8 mb-2 opacity-50" />
+                  <span className="text-[13px]">未在常用目录找到 Clash 配置</span>
+                  <span className="text-[11px] mt-1 opacity-60">
+                    已扫描：~/.config/clash/、ClashX、Clash Verge 等
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {localConfigs.map((cfg) => (
+                    <button
+                      key={cfg.path}
+                      type="button"
+                      onClick={() => doImport(cfg.path)}
+                      disabled={importingPath !== null}
+                      className={clsx(
+                        'w-full text-left px-3.5 py-2.5 rounded-lg border border-border',
+                        'bg-surface-2 hover:border-primary-500/50 hover:bg-surface-3 transition-all',
+                        'disabled:opacity-50 disabled:cursor-wait',
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileCode size={14} className="text-primary-400 flex-shrink-0" />
+                        <span className="text-[13px] font-medium text-gray-100 truncate">{cfg.name}</span>
+                        {importingPath === cfg.path && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary-400 ml-auto" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-400">
+                        <span>{formatBytes(cfg.size)}</span>
+                        <span>·</span>
+                        <span>修改于 {formatRelativeTime(new Date(cfg.mtime_secs * 1000).toISOString())}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-mono mt-0.5 truncate">{cfg.path}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-border text-[11px] text-gray-400">
+              导入后将作为 Kite 的引擎基础配置；重启引擎后生效。订阅里的代理节点、规则、DNS 都会被引用。
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

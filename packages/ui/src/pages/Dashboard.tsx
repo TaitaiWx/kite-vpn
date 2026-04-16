@@ -15,6 +15,9 @@ import {
   Shield,
   Cpu,
   Wifi,
+  LayoutDashboard,
+  BarChart3,
+  Info,
 } from 'lucide-react'
 import { useEngineStore } from '@/stores/engine'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -150,18 +153,44 @@ export function Dashboard() {
   }
 
   return (
-    <div className="animate-fade-in space-y-4 p-4">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
+    <div className="h-full flex flex-col animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700/50 flex-shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">仪表盘</h1>
-          <p className="text-[13px] text-gray-400 mt-0.5">实时流量监控与状态总览</p>
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">仪表盘</h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">实时流量监控与状态总览</p>
         </div>
         <StatusBadge status={state.status} size="lg" />
       </div>
 
+      {/* 左右布局：左侧快速导航 + 右侧内容 */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* 左侧导航 */}
+        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5">
+          {[
+            { id: 'overview', icon: <LayoutDashboard size={14} />, label: '概览' },
+            { id: 'traffic', icon: <BarChart3 size={14} />, label: '实时流量' },
+            { id: 'status', icon: <Info size={14} />, label: '快速状态' },
+          ].map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              onClick={(e) => {
+                e.preventDefault()
+                document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] text-gray-500 hover:text-gray-200 hover:bg-surface-2 transition-colors"
+            >
+              <span className="text-gray-400">{item.icon}</span>
+              <span>{item.label}</span>
+            </a>
+          ))}
+        </nav>
+
+        {/* 右侧内容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div id="overview" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="上传速度"
           value={formatSpeed(traffic.uploadSpeed)}
@@ -193,7 +222,7 @@ export function Dashboard() {
       </div>
 
       {/* Traffic chart */}
-      <div className="card-glass p-5">
+      <div id="traffic" className="card-glass p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">实时流量</h2>
           <span className="text-[11px] text-gray-400">最近 60 秒</span>
@@ -202,7 +231,7 @@ export function Dashboard() {
       </div>
 
       {/* Quick status */}
-      <div className="card-glass divide-y divide-border">
+      <div id="status" className="card-glass divide-y divide-border">
         <div className="px-5 py-3.5">
           <h2 className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">快速概览</h2>
         </div>
@@ -243,14 +272,29 @@ export function Dashboard() {
         <InfoItem
           icon={<Cpu size={16} />}
           label="引擎版本"
-          value={state.version ? `mihomo v${state.version}` : '未运行'}
+          value={
+            state.version
+              ? `mihomo v${state.version}`
+              : state.status === 'running'
+                ? <span className="text-gray-400">获取中…</span>
+                : <span className="text-gray-400">启动后显示</span>
+          }
         />
 
         <InfoItem
           icon={<Activity size={16} />}
           label="PID"
-          value={state.pid ? String(state.pid) : '—'}
+          value={
+            state.pid
+              ? String(state.pid)
+              : <span className="text-gray-400">{state.status === 'running' ? '—' : '未启动'}</span>
+          }
         />
+      </div>
+
+      {/* Bottom spacing */}
+      <div className="h-4" />
+        </div>
       </div>
     </div>
   )

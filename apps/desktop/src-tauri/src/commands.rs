@@ -11,6 +11,274 @@ fn update_tray_tooltip(app: &AppHandle, status: &str) {
     }
 }
 
+fn sync_tray_engine(app: &AppHandle, running: bool) {
+    crate::tray::update_engine_status(app, running);
+}
+
+fn sync_tray_system_proxy(app: &AppHandle, enabled: bool) {
+    crate::tray::update_system_proxy_check(app, enabled);
+}
+
+fn sync_tray_mode(app: &AppHandle, mode: &str) {
+    crate::tray::update_mode_check(app, mode);
+}
+
+// ─── YAML 深度合并 ──────────────────────────────────────────────────────────
+
+/// 把 `overlay` 深度合并到 `base` —— map 递归合并，数组直接替换，标量替换。
+/// 这是 Clash Verge 等客户端 "Mixin" 的标准语义。
+fn deep_merge_yaml(base: &mut serde_yaml::Value, overlay: serde_yaml::Value) {
+    use serde_yaml::Value;
+    match (base, overlay) {
+        (Value::Mapping(b), Value::Mapping(o)) => {
+            for (k, v) in o {
+                match b.get_mut(&k) {
+                    Some(existing) => deep_merge_yaml(existing, v),
+                    None => { b.insert(k, v); }
+                }
+            }
+        }
+        (slot, overlay) => { *slot = overlay; }
+    }
+}
+
+/// 从磁盘读当前 config.yaml，合并 AppConfig.mixin.content，写回。
+/// 若 engine 正在运行，调用 mihomo /configs PUT 触发热重载。
+#[tauri::command]
+pub async fn apply_mixin_and_reload(app: AppHandle) -> IpcResult<String> {
+    // 1. 读 AppConfig
+    let app_cfg_path = match get_data_path(&app, "app_config.json") {
+        Ok(p) => p,
+        Err(e) => return IpcResult::err(e),
+    };
+    let app_cfg_raw = match fs::read_to_string(&app_cfg_path) {
+        Ok(s) => s,
+        Err(_) => return IpcResult::err("尚未保存 AppConfig".to_string()),
+    };
+    let app_cfg: serde_json::Value = match serde_json::from_str(&app_cfg_raw) {
+        Ok(v) => v,
+        Err(e) => return IpcResult::err(format!("解析 AppConfig 失败: {}", e)),
+    };
+
+    let mixin_enabled = app_cfg.pointer("/mixin/enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let mixin_content = app_cfg.pointer("/mixin/content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    // 2. 读当前 config.yaml
+    let cfg_dir = match get_config_dir(&app) {
+        Ok(d) => d,
+        Err(e) => return IpcResult::err(e),
+    };
+    let config_file = cfg_dir.join("config.yaml");
+    if !config_file.exists() {
+        return IpcResult::err("config.yaml 不存在，请先启动一次引擎".to_string());
+    }
+    let base_yaml_raw = match fs::read_to_string(&config_file) {
+        Ok(s) => s,
+        Err(e) => return IpcResult::err(format!("读取 config.yaml 失败: {}", e)),
+    };
+
+    // 基础 YAML 可能已经是之前 apply mixin 后的产物；为了避免叠加，
+    // 从备份重读：如果有 config.base.yaml 用它，没有就把当前 config 存一份作为 base。
+    let base_backup = cfg_dir.join("config.base.yaml");
+    let base_source = if base_backup.exists() {
+        match fs::read_to_string(&base_backup) {
+            Ok(s) => s,
+            Err(_) => base_yaml_raw.clone(),
+        }
+    } else {
+        let _ = fs::write(&base_backup, &base_yaml_raw);
+        base_yaml_raw.clone()
+    };
+
+    // 3. 解析
+    let mut base_val: serde_yaml::Value = match serde_yaml::from_str(&base_source) {
+        Ok(v) => v,
+        Err(e) => return IpcResult::err(format!("解析基础 config.yaml 失败: {}", e)),
+    };
+
+    // 4. 合并 mixin（如果启用且非空）
+    let mut applied = false;
+    if mixin_enabled && !mixin_content.trim().is_empty() {
+        let overlay: serde_yaml::Value = match serde_yaml::from_str(&mixin_content) {
+            Ok(v) => v,
+            Err(e) => return IpcResult::err(format!("解析 Mixin YAML 失败: {}", e)),
+        };
+        deep_merge_yaml(&mut base_val, overlay);
+        applied = true;
+    }
+
+    // 5. 写回最终 config.yaml
+    let merged = match serde_yaml::to_string(&base_val) {
+        Ok(s) => s,
+        Err(e) => return IpcResult::err(format!("序列化最终 YAML 失败: {}", e)),
+    };
+    if let Err(e) = fs::write(&config_file, &merged) {
+        return IpcResult::err(format!("写入 config.yaml 失败: {}", e));
+    }
+
+    // 6. 如果引擎在跑，调用 /configs PUT 热重载
+    let is_running = {
+        let state = app.state::<EngineAppState>();
+        let mut engine = state.engine.lock().unwrap();
+        engine.is_running()
+    };
+
+    if is_running {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build().unwrap();
+        let cfg_path_str = config_file.to_string_lossy().to_string();
+        let body = format!(
+            r#"{{"path":"{}"}}"#,
+            cfg_path_str.replace('\\', "\\\\").replace('"', "\\\""),
+        );
+        match client.put("http://127.0.0.1:9090/configs?force=true")
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send().await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                IpcResult::ok(if applied { "已热重载（应用 Mixin）".to_string() } else { "已热重载".to_string() })
+            }
+            Ok(resp) => {
+                let text = resp.text().await.unwrap_or_default();
+                IpcResult::err(format!("热重载失败: {}", text))
+            }
+            Err(e) => IpcResult::err(format!("热重载失败（引擎可能未就绪）: {}", e)),
+        }
+    } else {
+        IpcResult::ok(if applied { "已应用（引擎未运行，下次启动生效）".to_string() } else { "已保存".to_string() })
+    }
+}
+
+// ─── 扫描本地已有的 Clash / Mihomo 配置 ─────────────────────────
+//
+// 首次使用 Kite 的用户通常已经在 ClashX / ClashX Pro / Clash Verge /
+// Clash for Windows 等客户端里跑着订阅了，那些 config.yaml 可以直接
+// 作为 Kite 的起点（尤其是里面带着已付费的代理节点 / 规则，重新配
+// 一遍徒增摩擦）。
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LocalClashConfig {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub mtime_secs: u64,
+}
+
+fn common_clash_config_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        // macOS 下 ClashX / ClashX Pro / Clash Verge / Nexitally 窗口版
+        #[cfg(target_os = "macos")]
+        {
+            dirs.push(home.join(".config/clash"));
+            dirs.push(home.join(".config/mihomo"));
+            dirs.push(home.join("Library/Application Support/com.west2online.ClashX"));
+            dirs.push(home.join("Library/Application Support/com.west2online.ClashXPro"));
+            dirs.push(home.join("Library/Application Support/clash_win_nex"));
+            dirs.push(home.join("Library/Application Support/io.github.clash-verge-rev.clash-verge-rev"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            dirs.push(home.join(".config/clash"));
+            dirs.push(home.join("AppData/Roaming/clash_win_nex"));
+            dirs.push(home.join("AppData/Roaming/io.github.clash-verge-rev.clash-verge-rev"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            dirs.push(home.join(".config/clash"));
+            dirs.push(home.join(".config/mihomo"));
+            dirs.push(home.join(".config/clash-verge"));
+        }
+    }
+    dirs
+}
+
+/// 扫描系统里已有的 Clash/Mihomo YAML 配置（不读内容，只返回元数据）。
+#[tauri::command]
+pub async fn scan_local_clash_configs() -> IpcResult<Vec<LocalClashConfig>> {
+    let mut found = Vec::new();
+    for dir in common_clash_config_dirs() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            if ext != "yaml" && ext != "yml" { continue; }
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            // 跳过太小的文件（<1KB 基本不是真订阅配置）
+            if meta.len() < 1024 { continue; }
+            let mtime_secs = meta.modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            found.push(LocalClashConfig {
+                path: path.to_string_lossy().to_string(),
+                name,
+                size: meta.len(),
+                mtime_secs,
+            });
+        }
+    }
+    // 按 mtime 倒序，用户最常用的排前面
+    found.sort_by(|a, b| b.mtime_secs.cmp(&a.mtime_secs));
+    IpcResult::ok(found)
+}
+
+/// 把本地 Clash 配置导入到 Kite 的 mihomo 配置目录作为 base。
+/// 同时清掉可能残留的 config.base.yaml（防止 mixin 合并错乱）。
+#[tauri::command]
+pub async fn import_local_clash_config(app: AppHandle, source_path: String) -> IpcResult<String> {
+    let source = PathBuf::from(&source_path);
+    if !source.exists() {
+        return IpcResult::err(format!("文件不存在: {}", source_path));
+    }
+    let content = match fs::read_to_string(&source) {
+        Ok(s) => s,
+        Err(e) => return IpcResult::err(format!("读取失败: {}", e)),
+    };
+    // 校验是合法 YAML
+    if serde_yaml::from_str::<serde_yaml::Value>(&content).is_err() {
+        return IpcResult::err("文件不是合法的 YAML".to_string());
+    }
+    let cfg_dir = match get_config_dir(&app) {
+        Ok(d) => d,
+        Err(e) => return IpcResult::err(e),
+    };
+    if let Err(e) = fs::write(cfg_dir.join("config.yaml"), &content) {
+        return IpcResult::err(format!("写入失败: {}", e));
+    }
+    // 清掉旧 base，下次 apply_mixin 会从新 config 重新做基线
+    let _ = fs::remove_file(cfg_dir.join("config.base.yaml"));
+    IpcResult::ok(format!("已导入 {} 字节", content.len()))
+}
+
+#[tauri::command]
+pub async fn sync_tray_state(
+    app: AppHandle,
+    engine_running: bool,
+    system_proxy: bool,
+    mode: String,
+    tun_enabled: bool,
+    mixin_enabled: bool,
+) -> IpcResult<()> {
+    crate::tray::update_engine_status(&app, engine_running);
+    crate::tray::update_system_proxy_check(&app, system_proxy);
+    crate::tray::update_mode_check(&app, &mode);
+    crate::tray::update_tun_check(&app, tun_enabled);
+    crate::tray::update_mixin_check(&app, mixin_enabled);
+    IpcResult::ok(())
+}
+
 // ─── 通用响应 ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,6 +366,58 @@ fn setup_geo_databases(app: &AppHandle, config_dir: &std::path::Path) {
     }
 }
 
+/// 优先从 bundled resources 里找一份完整的默认配置；否则 fallback 到最小可跑配置。
+/// 顺序：
+/// 1. bundled resources/default_config.yaml（派生自典型 Clash 机场订阅，7000+ 条规则）
+/// 2. 开发模式下 src-tauri/resources/default_config.yaml
+/// 3. 兜底：硬编码的极简 config（只保证引擎能启动）
+fn load_default_config_template(app: &AppHandle) -> String {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled = resource_dir.join("resources").join("default_config.yaml");
+        if let Ok(content) = fs::read_to_string(&bundled) {
+            return content;
+        }
+    }
+    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join("default_config.yaml");
+    if let Ok(content) = fs::read_to_string(&dev_path) {
+        return content;
+    }
+    // 最后兜底 —— 只保证引擎能启动
+    r#"mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 1.0.0.1
+  nameserver:
+    - https://dns.google/dns-query
+    - tls://8.8.8.8:853
+    - 8.8.8.8
+  fallback:
+    - https://1.1.1.1/dns-query
+    - tls://1.1.1.1:853
+    - 1.1.1.1
+proxies: []
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [DIRECT]
+rules:
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT
+"#.to_string()
+}
+
 // ─── 检测 mihomo 是否可用 ───────────────────────────────────────────────────
 
 #[tauri::command]
@@ -127,32 +447,8 @@ pub async fn engine_start(app: AppHandle) -> IpcResult<EngineInfo> {
     // 确保有默认配置文件
     let config_file = config_dir.join("config.yaml");
     if !config_file.exists() {
-        let default_config = r#"mixed-port: 7890
-allow-lan: false
-mode: rule
-log-level: info
-external-controller: 127.0.0.1:9090
-dns:
-  enable: true
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  nameserver:
-    - https://doh.pub/dns-query
-    - https://dns.alidns.com/dns-query
-  fallback:
-    - https://1.1.1.1/dns-query
-    - https://dns.google/dns-query
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-proxies: []
-proxy-groups: []
-rules:
-  - GEOSITE,cn,DIRECT
-  - GEOIP,CN,DIRECT
-  - MATCH,DIRECT
-"#;
-        let _ = fs::write(&config_file, default_config);
+        let default_config = load_default_config_template(&app);
+        let _ = fs::write(&config_file, &default_config);
     }
 
     let config_dir_str = config_dir.to_string_lossy().to_string();
@@ -162,6 +458,8 @@ rules:
     match engine.start(&mihomo_path, &config_dir_str) {
         Ok(pid) => {
             update_tray_tooltip(&app, "运行中");
+            drop(engine);
+            sync_tray_engine(&app, true);
             IpcResult::ok(EngineInfo {
                 status: "running".to_string(),
                 version: None,
@@ -189,6 +487,9 @@ pub async fn engine_stop(app: AppHandle) -> IpcResult<EngineInfo> {
     }
 
     update_tray_tooltip(&app, "已停止");
+    drop(engine);
+    sync_tray_engine(&app, false);
+    sync_tray_system_proxy(&app, false);
     IpcResult::ok(EngineInfo {
         status: "stopped".to_string(), version: None, pid: None, error: None,
     })
@@ -371,21 +672,27 @@ pub async fn load_app_config(app: AppHandle) -> IpcResult<String> {
 // ─── 系统代理 ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn enable_system_proxy(host: Option<String>, port: Option<u16>) -> IpcResult<bool> {
+pub async fn enable_system_proxy(app: AppHandle, host: Option<String>, port: Option<u16>) -> IpcResult<bool> {
     let config = system_proxy::ProxyConfig {
         host: host.unwrap_or_else(|| "127.0.0.1".to_string()),
         port: port.unwrap_or(7890),
     };
     match system_proxy::enable(&config) {
-        Ok(()) => IpcResult::ok(true),
+        Ok(()) => {
+            sync_tray_system_proxy(&app, true);
+            IpcResult::ok(true)
+        },
         Err(e) => IpcResult::err(e),
     }
 }
 
 #[tauri::command]
-pub async fn disable_system_proxy() -> IpcResult<bool> {
+pub async fn disable_system_proxy(app: AppHandle) -> IpcResult<bool> {
     match system_proxy::disable() {
-        Ok(()) => IpcResult::ok(false),
+        Ok(()) => {
+            sync_tray_system_proxy(&app, false);
+            IpcResult::ok(false)
+        },
         Err(e) => IpcResult::err(e),
     }
 }
@@ -401,7 +708,7 @@ pub async fn get_system_proxy_status() -> IpcResult<bool> {
 // ─── 代理模式 ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn set_mode(mode: String, controller_url: Option<String>) -> IpcResult<()> {
+pub async fn set_mode(app: AppHandle, mode: String, controller_url: Option<String>) -> IpcResult<()> {
     let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
     let client = reqwest::Client::new();
     match client.patch(format!("{}/configs", url))
@@ -409,7 +716,10 @@ pub async fn set_mode(mode: String, controller_url: Option<String>) -> IpcResult
         .body(format!(r#"{{"mode":"{}"}}"#, mode))
         .send().await
     {
-        Ok(_) => IpcResult::ok(()),
+        Ok(_) => {
+            sync_tray_mode(&app, &mode);
+            IpcResult::ok(())
+        },
         Err(e) => IpcResult::err(format!("设置模式失败: {}", e)),
     }
 }
@@ -445,6 +755,22 @@ pub async fn mihomo_get_proxies(controller_url: Option<String>) -> IpcResult<Str
             Err(e) => IpcResult::err(format!("读取代理数据失败: {}", e)),
         },
         Err(e) => IpcResult::err(format!("获取代理列表失败: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub async fn mihomo_get_rules(controller_url: Option<String>) -> IpcResult<String> {
+    let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build().unwrap();
+
+    match client.get(format!("{}/rules", url)).send().await {
+        Ok(resp) => match resp.text().await {
+            Ok(text) => IpcResult::ok(text),
+            Err(e) => IpcResult::err(format!("读取规则数据失败: {}", e)),
+        },
+        Err(e) => IpcResult::err(format!("获取规则列表失败: {}", e)),
     }
 }
 

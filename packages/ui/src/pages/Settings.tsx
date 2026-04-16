@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Sun,
   Moon,
@@ -85,25 +86,15 @@ function ToggleSwitch({ enabled, onChange, disabled = false, label }: ToggleSwit
 // 使用外部组件
 import { Select } from '@/components/Select'
 import { Input } from '@/components/Input'
+import { NumberInput, type NumberSuggestion } from '@/components/NumberInput'
 
-function NumberInput({ value, onChange, min, max, disabled, className }: {
-  value: number; onChange: (v: number) => void; min?: number; max?: number; disabled?: boolean; className?: string
-}) {
-  return (
-    <Input
-      type="number"
-      value={value}
-      min={min}
-      max={max}
-      disabled={disabled}
-      className={className}
-      onChange={(v) => {
-        const n = parseInt(v, 10)
-        if (Number.isFinite(n)) onChange(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n)))
-      }}
-    />
-  )
-}
+const COMMON_MIXED_PORTS: readonly NumberSuggestion[] = [
+  { value: 7890, label: 'Mixed', hint: 'Clash 默认' },
+  { value: 1080, label: 'SOCKS5', hint: '传统 SOCKS' },
+  { value: 8080, label: 'HTTP', hint: '传统 HTTP 代理' },
+  { value: 8888, label: 'Mixed', hint: '备用端口' },
+  { value: 10809, label: 'Mixed', hint: 'V2Ray 默认' },
+] as const
 
 function TextInput({ value, onChange, disabled, className, placeholder }: {
   value: string; onChange: (v: string) => void; disabled?: boolean; className?: string; placeholder?: string
@@ -228,6 +219,7 @@ export function Settings() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     void (async () => {
@@ -295,6 +287,21 @@ export function Settings() {
             dns: { ...prev.engineConfig.dns, [key]: value },
           },
         }
+      })
+      setSaved(false)
+    },
+    [],
+  )
+
+  const updateMixin = useCallback(
+    <K extends keyof NonNullable<AppConfig['mixin']>>(
+      key: K,
+      value: NonNullable<AppConfig['mixin']>[K],
+    ) => {
+      setConfig((prev) => {
+        if (!prev) return prev
+        const current = prev.mixin ?? { enabled: false, content: '' }
+        return { ...prev, mixin: { ...current, [key]: value } }
       })
       setSaved(false)
     },
@@ -427,6 +434,7 @@ export function Settings() {
             { id: 'network', icon: <Wifi size={14} />, label: '网络' },
             { id: 'dns', icon: <Globe size={14} />, label: 'DNS' },
             { id: 'tun', icon: <Shield size={14} />, label: 'TUN' },
+            { id: 'mixin', icon: <Server size={14} />, label: 'Mixin' },
             { id: 'about', icon: <Info size={14} />, label: '关于' },
           ].map((item) => (
             <a
@@ -525,7 +533,7 @@ export function Settings() {
           <SettingsRow
             label="系统代理"
             description="自动设置操作系统代理"
-            help="启动引擎时自动为系统注入 HTTP/SOCKS 代理；关闭或退出时自动还原。"
+            help="【接入方式 A】通过系统 API 把 HTTP/SOCKS 代理指向 127.0.0.1:7890。✓ 覆盖：读取系统代理的应用（浏览器 / curl 等）。✗ 不覆盖：UDP、某些游戏 / IM。✓ 无需管理员权限，即插即用。与 TUN 通常二选一。"
           >
             <ToggleSwitch
               enabled={config.systemProxy}
@@ -544,14 +552,15 @@ export function Settings() {
           <SettingsRow
             label="混合代理端口"
             description="HTTP 与 SOCKS5 共用端口"
-            help="本地监听端口，同时处理 HTTP(S) 与 SOCKS5 流量。建议使用 1024 以上未被占用的端口，默认 7890。"
+            help="本地监听端口，同时处理 HTTP(S) 与 SOCKS5 流量。建议使用 1024 以上未被占用的端口，默认 7890。点右侧下拉可快速选常见端口。"
           >
             <NumberInput
               value={engineConfig.mixedPort}
               onChange={(v) => updateEngineConfig('mixedPort', v)}
               min={1}
               max={65535}
-              className="w-28"
+              suggestions={COMMON_MIXED_PORTS}
+              className="w-44"
             />
           </SettingsRow>
 
@@ -722,7 +731,7 @@ export function Settings() {
           <SettingsRow
             label="启用 TUN"
             description="创建虚拟网络设备进行透明代理"
-            help="开启后整机所有 TCP/UDP 流量都会被代理，无需每个应用单独设置。需要管理员权限。"
+            help="【接入方式 B】创建虚拟网卡 + 改路由表，内核层拦截整机 TCP/UDP。✓ 覆盖：所有流量，包括游戏 / IM / UDP。✓ 最彻底。✗ 需要管理员权限；与部分 VPN 客户端冲突。与系统代理通常二选一；也可同时开以防有应用绕过系统代理。"
           >
             <ToggleSwitch
               enabled={tunConfig.enabled}
@@ -769,6 +778,44 @@ export function Settings() {
               disabled={!tunConfig.enabled}
               label="自动检测接口"
             />
+          </SettingsRow>
+        </SettingsSection></div>
+
+        {/* ── Mixin ──────────────────────────────────────────────── */}
+        <div id="mixin"><SettingsSection
+          icon={<Server size={16} />}
+          title="Mixin"
+          description="用户自定义 YAML 片段，合并到最终引擎配置"
+        >
+          <SettingsRow
+            label="启用 Mixin"
+            description="下次启动引擎时，将 YAML 深度合并到生成的配置"
+            help="【配置覆盖机制，不是接入方式】Mixin 跟系统代理 / TUN 不在同一维度 —— 系统代理 / TUN 决定「流量怎么进 Kite」；Mixin 决定「进来后按什么配置走」。关掉这个开关，即使 Mixin 里写了内容也不会生效。"
+          >
+            <ToggleSwitch
+              enabled={config.mixin?.enabled ?? false}
+              onChange={(v) => updateMixin('enabled', v)}
+              label="启用 Mixin"
+            />
+          </SettingsRow>
+
+          <SettingsRow
+            label="Mixin 内容"
+            description={
+              (config.mixin?.content?.trim().length ?? 0) > 0
+                ? `已配置 ${config.mixin?.content.split('\n').length ?? 0} 行 YAML`
+                : '尚未配置 — 点右侧按钮去规则页编辑'
+            }
+            help="Mixin 的 YAML 编辑已统一放在「规则」页，避免多处编辑产生冲突。"
+          >
+            <button
+              type="button"
+              onClick={() => navigate('/rules')}
+              className="btn-secondary text-xs py-1.5 px-3 inline-flex items-center gap-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span>去规则页编辑</span>
+            </button>
           </SettingsRow>
         </SettingsSection></div>
 
@@ -839,30 +886,6 @@ export function Settings() {
             </button>
           </SettingsRow>
 
-          <SettingsRow
-            label="项目主页"
-            description="查看源代码与参与贡献"
-            help="访问 GitHub 仓库，查看源码、提交 Issue 或参与开发。"
-          >
-            <a
-              href="https://github.com/nicekid1/Kite"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-ghost text-xs py-1.5 px-3 text-primary-600 dark:text-primary-400"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              <span>GitHub</span>
-            </a>
-          </SettingsRow>
-
-          <div className="py-4">
-            <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-              Kite — 跨平台代理客户端
-            </p>
-            <p className="text-[11px] text-gray-300 dark:text-gray-600 text-center mt-1">
-              Built with Tauri + React + TypeScript
-            </p>
-          </div>
         </SettingsSection></div>
 
         {/* Bottom spacing */}

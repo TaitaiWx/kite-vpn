@@ -217,6 +217,10 @@ export async function mihomoGetProxies(): Promise<IpcResult<string>> {
   return invoke<string>('mihomo_get_proxies', {})
 }
 
+export async function mihomoGetRules(): Promise<IpcResult<string>> {
+  return invoke<string>('mihomo_get_rules', {})
+}
+
 export interface LogChunk {
   lines: string[]
   total: number
@@ -408,6 +412,7 @@ async function mockInvoke(command: string, _args?: Record<string, unknown>): Pro
     case 'mihomo_get_traffic': return { success: true, data: { up: Math.floor(Math.random() * 500000), down: Math.floor(Math.random() * 5000000) } }
     case 'mihomo_get_connections': return { success: true, data: JSON.stringify({ connections: [], downloadTotal: 0, uploadTotal: 0 }) }
     case 'mihomo_get_proxies': return { success: true, data: JSON.stringify({ proxies: {} }) }
+    case 'mihomo_get_rules': return { success: true, data: JSON.stringify({ rules: getMockRules().map((r, i) => ({ type: r.type, payload: r.payload, proxy: r.target, size: -1, idx: i })) }) }
     case 'mihomo_get_logs': return { success: true, data: { lines: [], total: 0 } }
     case 'mihomo_get_version': return { success: true, data: 'v1.18.0' }
     case 'mihomo_reload_config': return { success: true, data: undefined }

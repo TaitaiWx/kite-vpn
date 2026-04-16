@@ -5,8 +5,8 @@
  * NO `any` types used anywhere.
  */
 
-import { useState, useCallback, useEffect } from 'react'
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Globe,
@@ -22,6 +22,7 @@ import {
   ArrowDown,
   Shield,
   ShieldOff,
+  ListTree,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -38,6 +39,7 @@ import { Tooltip } from '@/components/Tooltip'
 import { Dashboard } from '@/pages/Dashboard'
 import { Proxies } from '@/pages/Proxies'
 import { Subscriptions } from '@/pages/Subscriptions'
+import { Rules } from '@/pages/Rules'
 import { Connections } from '@/pages/Connections'
 import { Logs } from '@/pages/Logs'
 import { Settings } from '@/pages/Settings'
@@ -58,6 +60,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { path: '/dashboard', label: '仪表盘', icon: <LayoutDashboard size={18} /> },
   { path: '/proxies', label: '代理', icon: <Globe size={18} /> },
   { path: '/subscriptions', label: '订阅', icon: <Link size={18} /> },
+  { path: '/rules', label: '规则', icon: <ListTree size={18} /> },
   { path: '/connections', label: '连接', icon: <ArrowRightLeft size={18} /> },
   { path: '/logs', label: '日志', icon: <ScrollText size={18} /> },
   { path: '/settings', label: '设置', icon: <SettingsIcon size={18} /> },
@@ -106,6 +109,7 @@ export default function App() {
   const [showSetup, setShowSetup] = useState(false)
   const [setupChecked, setSetupChecked] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
 
   const engineState = useEngineStore((s) => s.state)
   const traffic = useEngineStore((s) => s.traffic)
@@ -136,6 +140,17 @@ export default function App() {
         const res = await loadAppConfig()
         if (!res.success || !res.data) return
         const cfg = res.data
+        // 初始化托盘勾选状态（TUN / Mixin 来自 cfg）
+        try {
+          const { invoke } = await import('@/lib/ipc')
+          await invoke('sync_tray_state', {
+            engineRunning: useEngineStore.getState().state.status === 'running',
+            systemProxy: useEngineStore.getState().systemProxy,
+            mode: useEngineStore.getState().mode,
+            tunEnabled: cfg.engineConfig.tun?.enabled ?? false,
+            mixinEnabled: cfg.mixin?.enabled ?? false,
+          })
+        } catch { /* ignore */ }
         if (cfg.startMinimized) {
           try {
             const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -153,6 +168,96 @@ export default function App() {
         }
       } catch { /* ignore */ }
     })()
+  }, [])
+
+  // 托盘菜单 → UI 事件桥接（挂一次，生命周期跟 app 一致；用 ref 稳定 navigate）
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
+  useEffect(() => {
+    const isTauri = typeof window !== 'undefined' && '__TAURI__' in window
+    if (!isTauri) return
+    let cancelled = false
+    const unlisteners: Array<() => void> = []
+    const register = (ul: () => void) => {
+      if (cancelled) { ul(); return }
+      unlisteners.push(ul)
+    }
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event')
+      register(await listen('tray://engine-toggle', () => {
+        const running = useEngineStore.getState().state.status === 'running'
+        void (running ? useEngineStore.getState().stopEngine() : useEngineStore.getState().startEngine())
+      }))
+      register(await listen<string>('tray://set-mode', (e) => {
+        void useEngineStore.getState().changeMode(e.payload as ProxyMode)
+      }))
+      register(await listen('tray://toggle-system-proxy', () => {
+        void useEngineStore.getState().toggleSystemProxy()
+      }))
+      register(await listen('tray://toggle-tun', () => {
+        void (async () => {
+          const { loadAppConfig, saveAppConfig, invoke } = await import('@/lib/ipc')
+          const res = await loadAppConfig()
+          if (!res.success || !res.data) { toast('无法加载配置', 'error'); return }
+          const cfg = res.data
+          const tun = cfg.engineConfig.tun ?? { enabled: false, stack: 'gvisor', autoRoute: true, autoDetectInterface: true }
+          const nextEnabled = !tun.enabled
+          const next = { ...cfg, engineConfig: { ...cfg.engineConfig, tun: { ...tun, enabled: nextEnabled } } }
+          await saveAppConfig(next)
+          await invoke('sync_tray_state', {
+            engineRunning: useEngineStore.getState().state.status === 'running',
+            systemProxy: useEngineStore.getState().systemProxy,
+            mode: useEngineStore.getState().mode,
+            tunEnabled: nextEnabled,
+            mixinEnabled: cfg.mixin?.enabled ?? false,
+          })
+          toast(nextEnabled ? 'TUN 已启用，下次启动引擎生效' : 'TUN 已禁用', 'info')
+        })()
+      }))
+      register(await listen('tray://toggle-mixin', () => {
+        void (async () => {
+          const { loadAppConfig, saveAppConfig, invoke } = await import('@/lib/ipc')
+          const res = await loadAppConfig()
+          if (!res.success || !res.data) { toast('无法加载配置', 'error'); return }
+          const cfg = res.data
+          const mixin = cfg.mixin ?? { enabled: false, content: '' }
+          const nextEnabled = !mixin.enabled
+          const next = { ...cfg, mixin: { ...mixin, enabled: nextEnabled } }
+          await saveAppConfig(next)
+          await invoke('sync_tray_state', {
+            engineRunning: useEngineStore.getState().state.status === 'running',
+            systemProxy: useEngineStore.getState().systemProxy,
+            mode: useEngineStore.getState().mode,
+            tunEnabled: cfg.engineConfig.tun?.enabled ?? false,
+            mixinEnabled: nextEnabled,
+          })
+          toast(nextEnabled ? 'Mixin 已启用，下次启动引擎生效' : 'Mixin 已禁用', 'info')
+        })()
+      }))
+      register(await listen<string>('tray://navigate', (e) => {
+        navigateRef.current(e.payload)
+      }))
+      register(await listen('tray://reload-config', () => {
+        void useEngineStore.getState().restartEngine()
+        toast('正在重载配置…', 'info')
+      }))
+      register(await listen('tray://check-update', () => {
+        void (async () => {
+          try {
+            const { check } = await import('@tauri-apps/plugin-updater')
+            const update = await check()
+            if (update) {
+              toast(`发现新版本 ${update.version}`, 'info')
+            } else {
+              toast('已是最新版本', 'success')
+            }
+          } catch {
+            toast('开发环境下更新机制不可用', 'info')
+          }
+        })()
+      }))
+    })()
+    return () => { cancelled = true; unlisteners.forEach((fn) => fn()) }
   }, [])
 
   // 首次启动检测：未完成过设置 + 引擎未运行 → 显示引导
@@ -357,6 +462,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/proxies" element={<Proxies />} />
                 <Route path="/subscriptions" element={<Subscriptions />} />
+                <Route path="/rules" element={<Rules />} />
                 <Route path="/connections" element={<Connections />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/settings" element={<Settings />} />

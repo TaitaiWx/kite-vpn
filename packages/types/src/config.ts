@@ -187,4 +187,19 @@ export interface AppConfig {
   checkUpdateOnStart: boolean;
   /** Engine (core) runtime configuration. */
   engineConfig: EngineConfig;
+  /** Mixin: user-defined YAML overlay applied on top of the generated config. */
+  mixin?: MixinConfig;
+}
+
+/**
+ * Mixin lets the user inject custom YAML that is merged into the final
+ * mihomo configuration every time the engine starts. Useful for
+ * overriding DNS / adding rules / hard-coding specific proxy groups
+ * without editing subscription output by hand.
+ */
+export interface MixinConfig {
+  /** When enabled, `content` is deep-merged into the generated config. */
+  enabled: boolean;
+  /** Raw YAML content. */
+  content: string;
 }

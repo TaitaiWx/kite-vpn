@@ -120,6 +120,14 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
     const result = await ipcGetState()
     if (result.success && result.data) {
       set({ state: result.data })
+      // 如果引擎已经在跑但没有 version 字段，主动拉一次
+      if (result.data.status === 'running' && !result.data.version) {
+        const v = await mihomoGetVersion()
+        if (v.success && v.data) {
+          set((prev) => ({ state: { ...prev.state, version: v.data } }))
+        }
+        get().startWatchdog()
+      }
     }
   },
 

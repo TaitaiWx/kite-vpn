@@ -44,6 +44,7 @@ pub fn run() {
             commands::set_mode,
             commands::mihomo_get_connections,
             commands::mihomo_get_proxies,
+            commands::mihomo_get_rules,
             commands::mihomo_get_logs,
             commands::mihomo_get_version,
             commands::mihomo_reload_config,
@@ -51,6 +52,10 @@ pub fn run() {
             commands::mihomo_close_connections,
             commands::test_proxy_delay,
             commands::set_autostart,
+            commands::sync_tray_state,
+            commands::apply_mixin_and_reload,
+            commands::scan_local_clash_configs,
+            commands::import_local_clash_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
