@@ -9,8 +9,37 @@ permissions:
   contents: write
 
 jobs:
-  # ══ 桌面端：构建 + 上传到 GitHub Release ══
+  # ══ 创建 / 复用 Release（单仓） ═════════════════════════════════════════
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - uses: actions/github-script@v7
+        id: create
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '')
+            let release
+            try {
+              const r = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner, repo: context.repo.repo, tag,
+              })
+              release = r.data
+            } catch {
+              const r = await github.rest.repos.createRelease({
+                owner: context.repo.owner, repo: context.repo.repo,
+                tag_name: tag, name: `Kite VPN ${tag}`,
+                body: `## Kite VPN ${tag}\n\n跨平台代理客户端，内置多订阅聚合。`,
+                draft: false, prerelease: false,
+              })
+              release = r.data
+            }
+            return release.id
+
+  # ══ 桌面端：tauri-action 构建 + 签名 + 产出 latest.json + 上传 ═══════════
   desktop:
+    needs: create-release
     name: Desktop (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -94,31 +123,24 @@ jobs:
       - name: Build frontend
         run: pnpm -w run build
 
-      - name: Build Tauri app
-        working-directory: apps/desktop
-        run: pnpm tauri build --target ${{ matrix.target }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: 'Kite VPN ${{ github.ref_name }}'
-          body: |
-            ## Kite VPN ${{ github.ref_name }}
-
-            跨平台代理客户端，内置多订阅聚合。
-          files: |
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+      # tauri-action：自动构建 + 签名 bundle + 生成 latest.json 并上传到 release
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --target ${{ matrix.target }}
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          # 合并多平台 manifest 到同一个 latest.json
+          updaterJsonKeepUniversal: true
+          updaterJsonPreferNsis: false
 
-  # ══ Android：构建 APK + 上传到 Release ══
+  # ══ Android：APK 上传到同一个 release ═══════════════════════════════════
   android:
+    needs: create-release
     name: Android
     runs-on: ubuntu-latest
     steps:
@@ -185,22 +207,7 @@ jobs:
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ══ iOS 暂不构建（需要 Apple Developer Program + 签名证书）══
-  # 配置好 Apple Developer Team ID 后取消注释
-  # ios:
-  #   name: iOS
-  #   runs-on: macos-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: pnpm/action-setup@v4
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version: 22, cache: pnpm }
-  #     - run: pnpm install --frozen-lockfile
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with: { targets: aarch64-apple-ios }
-  #     - run: pnpm -w run build
-  #     - run: cd apps/mobile && npx @tauri-apps/cli ios init && npx @tauri-apps/cli ios build

@@ -158,13 +158,44 @@ export default function App() {
           } catch { /* ignore */ }
         }
         if (cfg.checkUpdateOnStart) {
-          try {
-            const { check } = await import('@tauri-apps/plugin-updater')
-            const update = await check()
-            if (update) {
-              toast(`发现新版本 ${update.version}，可到设置中手动更新`, 'info')
-            }
-          } catch { /* 静默失败：无签名配置或网络问题 */ }
+          // 静默后台更新：启动几秒后检测 → 命中则后台下载并安装（不 relaunch）。
+          // 用户当前会话继续跑旧二进制；下次启动操作系统加载新二进制，自动生效。
+          // macOS：install() 会把 .app.tar.gz 解压替换运行中的 .app，
+          //   正在跑的进程仍在内存里用旧代码，磁盘已是新版本。
+          // Linux AppImage：同理，AppImage 文件被替换。
+          // Windows MSI：install() 会拉起 MSI 安装流程；无法完全静默，
+          //   所以跳过后台安装，只下载缓存，等用户手动点"检查更新"。
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const { check } = await import('@tauri-apps/plugin-updater')
+                const update = await check()
+                if (!update) return
+                const isWindows = /win/i.test(navigator.userAgent)
+                if (isWindows) {
+                  toast(`发现新版本 ${update.version}，到设置中手动更新`, 'info')
+                  return
+                }
+                // 后台静默下载 + 安装，不 relaunch
+                let total = 0
+                let received = 0
+                await update.downloadAndInstall((ev) => {
+                  if (ev.event === 'Started') {
+                    total = ev.data.contentLength ?? 0
+                  } else if (ev.event === 'Progress') {
+                    received += ev.data.chunkLength
+                  } else if (ev.event === 'Finished') {
+                    const mb = (total / 1024 / 1024).toFixed(1)
+                    toast(`更新 ${update.version} 已下载(${mb}MB)，下次启动自动生效`, 'success')
+                  }
+                })
+                // 故意不 relaunch —— 保留当前会话
+                void received
+              } catch {
+                /* 网络 / 签名 / 未发布 —— 全部静默 */
+              }
+            })()
+          }, 3000)
         }
       } catch { /* ignore */ }
     })()

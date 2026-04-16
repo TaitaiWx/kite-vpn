@@ -12,6 +12,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
+        // 源码与分发都在公开的 TaitaiWx/kite-vpn。零鉴权零秘密在二进制里。
+        // 更新完整性靠 minisign 签名保证（pubkey 在 tauri.conf.json）。
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine::EngineState::new())
         .setup(|app| {
