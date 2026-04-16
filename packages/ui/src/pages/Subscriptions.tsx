@@ -137,6 +137,7 @@ interface SubscriptionRowProps {
   onToggle: (id: string) => void
   onEdit: (subscription: Subscription) => void
   onDelete: (id: string) => void
+  isDemo?: boolean
 }
 
 function SubscriptionRow({
@@ -145,6 +146,7 @@ function SubscriptionRow({
   onToggle,
   onEdit,
   onDelete,
+  isDemo,
 }: SubscriptionRowProps) {
   const statusVisual = getStatusVisual(subscription.status, subscription.error)
   const isUpdating = subscription.status === 'updating'
@@ -184,6 +186,11 @@ function SubscriptionRow({
             {!subscription.enabled && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">
                 已禁用
+              </span>
+            )}
+            {isDemo && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-400">
+                演示展示
               </span>
             )}
           </div>
@@ -639,6 +646,7 @@ export function Subscriptions() {
                 onToggle={toggleSubscription}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
+                isDemo={isDemo}
               />
             ))}
           </div>

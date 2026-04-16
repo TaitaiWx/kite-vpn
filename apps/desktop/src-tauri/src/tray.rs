@@ -1,11 +1,11 @@
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
 
 pub fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let toggle = MenuItem::with_id(app, "toggle", "显示/隐藏窗口", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(app, "toggle", "显示 / 隐藏窗口", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let mode_rule = MenuItem::with_id(app, "mode_rule", "🔰 规则模式", true, None::<&str>)?;
     let mode_global = MenuItem::with_id(app, "mode_global", "🌐 全局模式", true, None::<&str>)?;
@@ -31,22 +31,31 @@ pub fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(true)
         .tooltip("Kite — 已停止")
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "toggle" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
-            }
-            "quit" => {
-                app.exit(0);
-            }
+            "toggle" => toggle_main_window(app),
+            "quit" => app.exit(0),
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } = event
+            {
+                toggle_main_window(tray.app_handle());
+            }
         })
         .build(app)?;
 
     Ok(())
+}
+
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }
 }

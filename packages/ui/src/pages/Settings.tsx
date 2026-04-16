@@ -35,6 +35,15 @@ import { clsx } from 'clsx'
 import type { AppConfig, ProxyMode, LogLevel } from '@kite-vpn/types'
 import { getMockAppConfig, loadAppConfig, saveAppConfig } from '@/lib/ipc'
 import { toast } from '@/stores/toast'
+import { Tooltip } from '@/components/Tooltip'
+import { HelpCircle } from 'lucide-react'
+
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI__' in window
+}
+
+declare const __APP_VERSION__: string
+const APP_VERSION = __APP_VERSION__
 
 // ---------------------------------------------------------------------------
 // Toggle switch component
@@ -109,11 +118,12 @@ function TextInput({ value, onChange, disabled, className, placeholder }: {
 interface SettingsRowProps {
   label: string
   description?: string
+  help?: string
   children: React.ReactNode
   vertical?: boolean
 }
 
-function SettingsRow({ label, description, children, vertical = false }: SettingsRowProps) {
+function SettingsRow({ label, description, help, children, vertical = false }: SettingsRowProps) {
   return (
     <div
       className={clsx(
@@ -122,7 +132,16 @@ function SettingsRow({ label, description, children, vertical = false }: Setting
       )}
     >
       <div className="flex-1 min-w-0">
-        <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200">{label}</span>
+          {help && (
+            <Tooltip text={help}>
+              <span className="inline-flex text-gray-400 hover:text-gray-200 cursor-help">
+                <HelpCircle size={12} />
+              </span>
+            </Tooltip>
+          )}
+        </div>
         {description && (
           <p className="text-[11px] text-gray-400 mt-0.5">{description}</p>
         )}
@@ -399,15 +418,45 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+      {/* 左右布局：左侧快速导航 + 右侧内容 */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* 左侧导航 */}
+        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5">
+          {[
+            { id: 'general', icon: <Monitor size={14} />, label: '通用' },
+            { id: 'network', icon: <Wifi size={14} />, label: '网络' },
+            { id: 'dns', icon: <Globe size={14} />, label: 'DNS' },
+            { id: 'tun', icon: <Shield size={14} />, label: 'TUN' },
+            { id: 'about', icon: <Info size={14} />, label: '关于' },
+          ].map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              onClick={(e) => {
+                e.preventDefault()
+                document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] text-gray-500 hover:text-gray-200 hover:bg-surface-2 transition-colors"
+            >
+              <span className="text-gray-400">{item.icon}</span>
+              <span>{item.label}</span>
+            </a>
+          ))}
+        </nav>
+
+        {/* 右侧内容 */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
         {/* ── General ─────────────────────────────────────────────── */}
-        <SettingsSection
+        <div id="general"><SettingsSection
           icon={<Monitor size={16} />}
           title="通用"
           description="外观与启动行为设置"
         >
-          <SettingsRow label="主题" description="选择应用程序的配色主题">
+          <SettingsRow
+            label="主题"
+            description="选择应用程序的配色主题"
+            help="浅色 / 深色 / 跟随系统。切换后立即生效，不需要重启应用。"
+          >
             <Select<ThemeValue>
               value={config.theme}
               options={THEME_OPTIONS}
@@ -416,7 +465,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="语言" description="设置界面显示语言">
+          <SettingsRow
+            label="语言"
+            description="设置界面显示语言"
+            help="当前仅支持简体中文。更多语言会在后续版本加入。"
+          >
             <Select<LanguageValue>
               value={config.language}
               options={LANGUAGE_OPTIONS}
@@ -425,7 +478,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="开机自启" description="系统启动时自动运行 Kite">
+          <SettingsRow
+            label="开机自启"
+            description="系统启动时自动运行 Kite"
+            help="登录系统后由系统自动拉起 Kite 并常驻托盘，无需手动启动。"
+          >
             <ToggleSwitch
               enabled={config.autoStart}
               onChange={(v) => {
@@ -441,7 +498,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="启动时最小化" description="启动后自动隐藏到系统托盘">
+          <SettingsRow
+            label="启动时最小化"
+            description="启动后自动隐藏到系统托盘"
+            help="App 启动后不弹出主窗口，直接隐藏到托盘后台运行。需与「开机自启」搭配使用效果更佳。"
+          >
             <ToggleSwitch
               enabled={config.startMinimized}
               onChange={(v) => updateConfig('startMinimized', v)}
@@ -449,7 +510,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="自动检查更新" description="启动时检查是否有新版本可用">
+          <SettingsRow
+            label="自动检查更新"
+            description="启动时检查是否有新版本可用"
+            help="打开后，应用启动时会静默向更新服务器查询最新版本；发现新版本将弹出通知。"
+          >
             <ToggleSwitch
               enabled={config.checkUpdateOnStart}
               onChange={(v) => updateConfig('checkUpdateOnStart', v)}
@@ -457,22 +522,30 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="系统代理" description="自动设置操作系统代理">
+          <SettingsRow
+            label="系统代理"
+            description="自动设置操作系统代理"
+            help="启动引擎时自动为系统注入 HTTP/SOCKS 代理；关闭或退出时自动还原。"
+          >
             <ToggleSwitch
               enabled={config.systemProxy}
               onChange={(v) => updateConfig('systemProxy', v)}
               label="系统代理"
             />
           </SettingsRow>
-        </SettingsSection>
+        </SettingsSection></div>
 
         {/* ── Network ─────────────────────────────────────────────── */}
-        <SettingsSection
+        <div id="network"><SettingsSection
           icon={<Wifi size={16} />}
           title="网络"
           description="代理端口与网络访问控制"
         >
-          <SettingsRow label="混合代理端口" description="HTTP 与 SOCKS5 共用端口">
+          <SettingsRow
+            label="混合代理端口"
+            description="HTTP 与 SOCKS5 共用端口"
+            help="本地监听端口，同时处理 HTTP(S) 与 SOCKS5 流量。建议使用 1024 以上未被占用的端口，默认 7890。"
+          >
             <NumberInput
               value={engineConfig.mixedPort}
               onChange={(v) => updateEngineConfig('mixedPort', v)}
@@ -482,7 +555,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="允许局域网访问" description="允许其他设备通过本机代理上网">
+          <SettingsRow
+            label="允许局域网访问"
+            description="允许其他设备通过本机代理上网"
+            help="开启后，同一网络下的其他设备（手机、平板等）可以使用本机 IP + 端口作为代理出口。"
+          >
             <ToggleSwitch
               enabled={engineConfig.allowLan}
               onChange={(v) => updateEngineConfig('allowLan', v)}
@@ -490,7 +567,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="默认模式" description="代理路由的默认运行模式">
+          <SettingsRow
+            label="默认模式"
+            description="代理路由的默认运行模式"
+            help="规则：按规则表分流（推荐）。全局：所有流量走代理。直连：所有流量直连，代理不生效。"
+          >
             <Select<ProxyMode>
               value={engineConfig.mode}
               options={MODE_OPTIONS}
@@ -499,7 +580,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="日志级别" description="引擎运行日志的详细程度">
+          <SettingsRow
+            label="日志级别"
+            description="引擎运行日志的详细程度"
+            help="Debug 最详细但性能开销大；Info 推荐；Error 仅记录错误；Silent 关闭日志。"
+          >
             <Select<LogLevel>
               value={engineConfig.logLevel}
               options={LOG_LEVEL_OPTIONS}
@@ -509,7 +594,11 @@ export function Settings() {
           </SettingsRow>
 
           {engineConfig.externalController !== undefined && (
-            <SettingsRow label="外部控制器" description="RESTful API 监听地址">
+            <SettingsRow
+              label="外部控制器"
+              description="RESTful API 监听地址"
+              help="mihomo 的 RESTful API 监听地址，外部工具（如 Yacd/Clash Dashboard）可通过此地址管理引擎。"
+            >
               <TextInput
                 value={engineConfig.externalController ?? ''}
                 onChange={(v) => updateEngineConfig('externalController', v)}
@@ -518,15 +607,19 @@ export function Settings() {
               />
             </SettingsRow>
           )}
-        </SettingsSection>
+        </SettingsSection></div>
 
         {/* ── DNS ─────────────────────────────────────────────────── */}
-        <SettingsSection
+        <div id="dns"><SettingsSection
           icon={<Globe size={16} />}
           title="DNS"
           description="域名解析与 DNS 服务器配置"
         >
-          <SettingsRow label="启用 DNS" description="使用内置 DNS 服务器进行域名解析">
+          <SettingsRow
+            label="启用 DNS"
+            description="使用内置 DNS 服务器进行域名解析"
+            help="开启后，代理规则与分流将由引擎内置的 DNS 解析，避免系统 DNS 泄漏和污染。"
+          >
             <ToggleSwitch
               enabled={engineConfig.dns.enabled}
               onChange={(v) => updateDnsConfig('enabled', v)}
@@ -534,7 +627,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="增强模式" description="DNS 请求处理方式">
+          <SettingsRow
+            label="增强模式"
+            description="DNS 请求处理方式"
+            help="Fake IP：给每个域名分配虚拟 IP，速度快、分流准确（推荐）；Redir Host：真实解析域名，兼容性更好。"
+          >
             <Select<DnsEnhancedMode>
               value={engineConfig.dns.enhancedMode ?? 'fake-ip'}
               options={DNS_MODE_OPTIONS}
@@ -544,7 +641,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="Fake IP 范围" description="Fake IP 地址池 CIDR">
+          <SettingsRow
+            label="Fake IP 范围"
+            description="Fake IP 地址池 CIDR"
+            help="Fake IP 模式下分配给域名的虚拟 IP 段。默认 198.18.0.1/16 是保留段，通常不需要修改。"
+          >
             <TextInput
               value={engineConfig.dns.fakeIpRange ?? '198.18.0.1/16'}
               onChange={(v) => updateDnsConfig('fakeIpRange', v)}
@@ -557,6 +658,7 @@ export function Settings() {
           <SettingsRow
             label="DNS 服务器"
             description="主要 DNS 服务器地址（每行一个）"
+            help="支持 UDP / TCP / DoT(tls://) / DoH(https://)。建议使用加密 DNS 防止污染。"
             vertical
           >
             <textarea
@@ -578,6 +680,7 @@ export function Settings() {
           <SettingsRow
             label="备用 DNS 服务器"
             description="当主 DNS 失败时使用的备用服务器（每行一个）"
+            help="主 DNS 查询失败或返回污染结果时使用。可填国外加密 DNS 如 Cloudflare、Google。"
             vertical
           >
             <textarea
@@ -596,7 +699,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="允许 IPv6" description="允许 AAAA 记录解析">
+          <SettingsRow
+            label="允许 IPv6"
+            description="允许 AAAA 记录解析"
+            help="如网络环境不支持 IPv6 反而会导致超时，保持关闭更稳定。"
+          >
             <ToggleSwitch
               enabled={engineConfig.dns.ipv6 ?? false}
               onChange={(v) => updateDnsConfig('ipv6', v)}
@@ -604,15 +711,19 @@ export function Settings() {
               label="允许 IPv6"
             />
           </SettingsRow>
-        </SettingsSection>
+        </SettingsSection></div>
 
         {/* ── TUN ─────────────────────────────────────────────────── */}
-        <SettingsSection
+        <div id="tun"><SettingsSection
           icon={<Shield size={16} />}
           title="TUN"
           description="透明代理 TUN 设备配置"
         >
-          <SettingsRow label="启用 TUN" description="创建虚拟网络设备进行透明代理">
+          <SettingsRow
+            label="启用 TUN"
+            description="创建虚拟网络设备进行透明代理"
+            help="开启后整机所有 TCP/UDP 流量都会被代理，无需每个应用单独设置。需要管理员权限。"
+          >
             <ToggleSwitch
               enabled={tunConfig.enabled}
               onChange={(v) => updateTunConfig('enabled', v)}
@@ -620,7 +731,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="网络栈" description="TUN 设备使用的网络栈实现">
+          <SettingsRow
+            label="网络栈"
+            description="TUN 设备使用的网络栈实现"
+            help="gVisor：纯用户态，兼容性好（推荐）；System：系统栈，性能最好；Mixed：混合模式。"
+          >
             <Select<TunStack>
               value={tunConfig.stack ?? 'gvisor'}
               options={TUN_STACK_OPTIONS}
@@ -630,7 +745,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="自动路由" description="自动配置系统路由表">
+          <SettingsRow
+            label="自动路由"
+            description="自动配置系统路由表"
+            help="开启后自动把系统默认路由指向 TUN 设备。关闭则需要手动配置路由。"
+          >
             <ToggleSwitch
               enabled={tunConfig.autoRoute ?? true}
               onChange={(v) => updateTunConfig('autoRoute', v)}
@@ -639,7 +758,11 @@ export function Settings() {
             />
           </SettingsRow>
 
-          <SettingsRow label="自动检测接口" description="自动检测默认网络出口">
+          <SettingsRow
+            label="自动检测接口"
+            description="自动检测默认网络出口"
+            help="自动识别当前物理网卡作为出口接口，适配有线/无线切换场景。"
+          >
             <ToggleSwitch
               enabled={tunConfig.autoDetectInterface ?? true}
               onChange={(v) => updateTunConfig('autoDetectInterface', v)}
@@ -647,32 +770,48 @@ export function Settings() {
               label="自动检测接口"
             />
           </SettingsRow>
-        </SettingsSection>
+        </SettingsSection></div>
 
         {/* ── About ───────────────────────────────────────────────── */}
-        <SettingsSection
+        <div id="about"><SettingsSection
           icon={<Info size={16} />}
           title="关于"
           description="应用信息与更新"
         >
-          <SettingsRow label="应用版本" description="当前安装的 Kite 版本">
+          <SettingsRow
+            label="应用版本"
+            description="当前安装的 Kite 版本"
+            help="Kite 前端 UI 与桌面壳的版本号，来自 package.json。"
+          >
             <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
-              v0.1.0
+              v{APP_VERSION}
             </span>
           </SettingsRow>
 
-          <SettingsRow label="引擎版本" description="mihomo 内核版本">
+          <SettingsRow
+            label="引擎版本"
+            description="mihomo 内核版本"
+            help="底层代理引擎 mihomo (Clash.Meta) 的版本号。"
+          >
             <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
               v1.18.0
             </span>
           </SettingsRow>
 
-          <SettingsRow label="检查更新" description="检查是否有可用的新版本">
+          <SettingsRow
+            label="检查更新"
+            description="检查是否有可用的新版本"
+            help="从 GitHub Releases 查询最新版本。开发环境下更新机制不可用。"
+          >
             <button
               type="button"
               className="btn-secondary text-xs py-1.5 px-3"
               onClick={() => {
                 void (async () => {
+                  if (!isTauriRuntime()) {
+                    toast('开发环境下更新机制不可用；打包后可正常使用。', 'info')
+                    return
+                  }
                   try {
                     const { check } = await import('@tauri-apps/plugin-updater')
                     const update = await check()
@@ -684,8 +823,13 @@ export function Settings() {
                     } else {
                       toast('已是最新版本', 'success')
                     }
-                  } catch {
-                    toast('检查更新失败', 'error')
+                  } catch (e) {
+                    const msg = String(e)
+                    if (msg.includes('not yet implemented') || msg.includes('not configured')) {
+                      toast('开发环境下更新机制不可用', 'info')
+                    } else {
+                      toast('检查更新失败：' + msg, 'error')
+                    }
                   }
                 })()
               }}
@@ -695,7 +839,11 @@ export function Settings() {
             </button>
           </SettingsRow>
 
-          <SettingsRow label="项目主页" description="查看源代码与参与贡献">
+          <SettingsRow
+            label="项目主页"
+            description="查看源代码与参与贡献"
+            help="访问 GitHub 仓库，查看源码、提交 Issue 或参与开发。"
+          >
             <a
               href="https://github.com/nicekid1/Kite"
               target="_blank"
@@ -715,10 +863,11 @@ export function Settings() {
               Built with Tauri + React + TypeScript
             </p>
           </div>
-        </SettingsSection>
+        </SettingsSection></div>
 
         {/* Bottom spacing */}
         <div className="h-4" />
+        </div>
       </div>
     </div>
   )

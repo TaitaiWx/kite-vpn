@@ -32,6 +32,7 @@ import { SetupWizard } from '@/components/SetupWizard'
 import { toast } from '@/stores/toast'
 import { formatSpeed } from '@/lib/format'
 import { startAutoRefresh } from '@/stores/subscription'
+import { loadAppConfig } from '@/lib/ipc'
 import { Tooltip } from '@/components/Tooltip'
 
 import { Dashboard } from '@/pages/Dashboard'
@@ -125,6 +126,34 @@ export default function App() {
     void fetchProxyStatus()
     startAutoRefresh()
   }, [fetchState, fetchProxyStatus])
+
+  // 启动时应用 startMinimized 与 checkUpdateOnStart 设置
+  useEffect(() => {
+    const isTauri = typeof window !== 'undefined' && '__TAURI__' in window
+    if (!isTauri) return
+    void (async () => {
+      try {
+        const res = await loadAppConfig()
+        if (!res.success || !res.data) return
+        const cfg = res.data
+        if (cfg.startMinimized) {
+          try {
+            const { getCurrentWindow } = await import('@tauri-apps/api/window')
+            await getCurrentWindow().hide()
+          } catch { /* ignore */ }
+        }
+        if (cfg.checkUpdateOnStart) {
+          try {
+            const { check } = await import('@tauri-apps/plugin-updater')
+            const update = await check()
+            if (update) {
+              toast(`发现新版本 ${update.version}，可到设置中手动更新`, 'info')
+            }
+          } catch { /* 静默失败：无签名配置或网络问题 */ }
+        }
+      } catch { /* ignore */ }
+    })()
+  }, [])
 
   // 首次启动检测：未完成过设置 + 引擎未运行 → 显示引导
   useEffect(() => {
