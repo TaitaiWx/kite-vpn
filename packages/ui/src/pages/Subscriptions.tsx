@@ -32,6 +32,7 @@ import {
 import { clsx } from 'clsx'
 import type { Subscription, SubscriptionStatus } from '@kite-vpn/types'
 import { useSubscriptionStore } from '@/stores/subscription'
+import { getMockSubscriptions } from '@/lib/ipc'
 import { formatBytes, formatDate, formatRelativeTime } from '@/lib/format'
 
 // ---------------------------------------------------------------------------
@@ -495,6 +496,7 @@ export function Subscriptions() {
   const subscriptions = useSubscriptionStore((s) => s.subscriptions)
   const loaded = useSubscriptionStore((s) => s.loaded)
   const updatingAll = useSubscriptionStore((s) => s.updatingAll)
+  const hasRealData = useSubscriptionStore((s) => s.hasRealData)
   const load = useSubscriptionStore((s) => s.load)
   const addSubscription = useSubscriptionStore((s) => s.addSubscription)
   const removeSubscription = useSubscriptionStore((s) => s.removeSubscription)
@@ -502,9 +504,13 @@ export function Subscriptions() {
   const refreshSubscription = useSubscriptionStore((s) => s.refreshSubscription)
   const refreshAll = useSubscriptionStore((s) => s.refreshAll)
 
+  // 没有真实数据时展示 mock（带演示标记）
+  const isDemo = !hasRealData && subscriptions.length === 0
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null)
+  const displaySubs = isDemo ? getMockSubscriptions() : subscriptions
 
   // Initial load
   useEffect(() => {
@@ -565,8 +571,8 @@ export function Subscriptions() {
   }, [refreshAll])
 
   // Stats
-  const totalNodes = subscriptions.reduce((acc, s) => acc + s.nodes.length, 0)
-  const enabledCount = subscriptions.filter((s) => s.enabled).length
+  const totalNodes = displaySubs.reduce((acc, s) => acc + s.nodes.length, 0)
+  const enabledCount = displaySubs.filter((s) => s.enabled).length
 
   if (!loaded) {
     return (
@@ -583,7 +589,8 @@ export function Subscriptions() {
         <div>
           <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">订阅管理</h1>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            {subscriptions.length} 个订阅 · {enabledCount} 启用 · {totalNodes} 个节点
+            {displaySubs.length} 个订阅 · {enabledCount} 启用 · {totalNodes} 个节点
+            {isDemo && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400">演示数据</span>}
           </p>
         </div>
 
@@ -616,7 +623,7 @@ export function Subscriptions() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {subscriptions.length === 0 ? (
+        {displaySubs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400">
             <ExternalLink className="h-8 w-8 mb-2 opacity-50" />
             <span className="text-[13px] font-medium">暂无订阅</span>
@@ -624,7 +631,7 @@ export function Subscriptions() {
           </div>
         ) : (
           <div className="space-y-2">
-            {subscriptions.map((sub) => (
+            {displaySubs.map((sub) => (
               <SubscriptionRow
                 key={sub.id}
                 subscription={sub}

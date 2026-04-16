@@ -246,15 +246,20 @@ export function Proxies() {
   const [nodeSourceMap, setNodeSourceMap] = useState<Map<string, string>>(new Map())
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions)
+  const hasRealData = useSubscriptionStore((s) => s.hasRealData)
   const engineStatus = useEngineStore((s) => s.state.status)
+
+  const isDemo = !hasRealData && subscriptions.length === 0
 
   // 构建分组数据
   useEffect(() => {
     void (async () => {
-      const enabledSubs = subscriptions.filter((s) => s.enabled && s.nodes.length > 0)
+      const realSubs = subscriptions.filter((s) => s.enabled && s.nodes.length > 0)
+      const demoSubs = isDemo ? getMockSubscriptions() : []
+      const enabledSubs = realSubs.length > 0 ? realSubs : demoSubs
       const allNodes = enabledSubs.flatMap((s) => s.nodes)
-      const sourceNodes = allNodes.length > 0 ? allNodes : getMockSubscriptions().flatMap((s) => s.nodes)
-      const sourceSubs = enabledSubs.length > 0 ? enabledSubs : getMockSubscriptions()
+      const sourceNodes = allNodes
+      const sourceSubs = enabledSubs
 
       // 引擎运行时尝试从 API 获取延迟数据
       if (engineStatus === 'running') {
@@ -337,7 +342,7 @@ export function Proxies() {
         setActiveGroup((prev) => newGroups.some((g) => g.name === prev) ? prev : (newGroups[0]?.name ?? ''))
       }
     })()
-  }, [subscriptions, engineStatus, viewMode])
+  }, [subscriptions, engineStatus, viewMode, isDemo])
 
   // Resolve the current group object
   const currentGroup = useMemo(
@@ -428,6 +433,7 @@ export function Proxies() {
             <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">代理</h1>
             <p className="text-[11px] text-gray-400 mt-0.5">
               {nodes.length} 个节点 · {groups.length} 个分组
+              {isDemo && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400">演示数据</span>}
             </p>
           </div>
           {/* 视图切换 */}

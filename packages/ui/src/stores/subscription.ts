@@ -6,7 +6,6 @@ import {
   writeConfig as ipcWriteConfig,
   fetchRemoteSubscription,
   mihomoReloadConfig,
-  getMockSubscriptions,
 } from '@/lib/ipc'
 import {
   parseSubscriptionContent,
@@ -30,6 +29,7 @@ interface SubscriptionStore {
   subscriptions: Subscription[]
   loaded: boolean
   updatingAll: boolean
+  hasRealData: boolean
   mergeStrategy: MergeStrategy
 
   load: () => Promise<void>
@@ -75,6 +75,7 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
   subscriptions: [],
   loaded: false,
   updatingAll: false,
+  hasRealData: false,
   mergeStrategy: {
     deduplication: 'by_server',
     nameConflict: 'rename',
@@ -88,11 +89,8 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
   load: async () => {
     if (get().loaded) return
     const result = await ipcLoad()
-    if (result.success && result.data && result.data.length > 0) {
-      set({ subscriptions: result.data, loaded: true })
-    } else {
-      set({ subscriptions: getMockSubscriptions(), loaded: true })
-    }
+    const real = (result.success && result.data) ? result.data : []
+    set({ subscriptions: real, loaded: true, hasRealData: real.length > 0 })
   },
 
   persist: async () => {
@@ -105,7 +103,7 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
       id: generateId(), name, url, enabled: true,
       nodes: [], updateIntervalHours: 12, status: 'idle',
     }
-    set((s) => ({ subscriptions: [...s.subscriptions, newSub] }))
+    set((s) => ({ subscriptions: [...s.subscriptions, newSub], hasRealData: true }))
     await get().persist()
     await get().refreshSubscription(newSub.id)
   },
