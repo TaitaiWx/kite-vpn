@@ -1,6 +1,6 @@
 {
   "name": "kite-vpn",
-  "version": "1.0.1-beta.10",
+  "version": "1.0.1-beta.11",
   "private": true,
   "description": "Cross-platform proxy client with built-in subscription merging",
   "author": "",
