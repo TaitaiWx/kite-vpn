@@ -33,7 +33,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage",
+      "dmg",
+      "app",
+      "msi",
+      "nsis"
+    ],
     "externalBin": [
       "binaries/mihomo"
     ],
