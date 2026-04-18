@@ -1,10 +1,67 @@
 mod commands;
 mod engine;
+mod native_menu_mac;
 mod system_proxy;
 mod tray;
 
+/// 初始化本地日志文件。所有 eprintln! 输出 + panic 信息都写进去。
+/// 路径：~/Library/Application Support/com.kitevpn.desktop/logs/kite.log（macOS）
+fn init_local_logging() {
+    use std::{fs, io::Write, panic};
+
+    // 跟 Tauri 的 app_data_dir() 保持一致：
+    // macOS:   ~/Library/Application Support/com.kitevpn.desktop/logs/
+    // Windows: %APPDATA%/com.kitevpn.desktop/logs/
+    // Linux:   ~/.local/share/com.kitevpn.desktop/logs/
+    let log_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("com.kitevpn.desktop")
+        .join("logs");
+    let _ = fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join("kite.log");
+
+    // 截断到最近 50KB（避免日志无限膨胀）
+    if let Ok(meta) = fs::metadata(&log_path) {
+        if meta.len() > 50 * 1024 {
+            if let Ok(content) = fs::read_to_string(&log_path) {
+                let keep = &content[content.len().saturating_sub(30 * 1024)..];
+                let _ = fs::write(&log_path, keep);
+            }
+        }
+    }
+
+    // 写启动时间戳
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = writeln!(f, "\n══ Kite started at {} ══", chrono_now());
+    }
+
+    // panic hook —— 把 panic 信息写日志 + stderr
+    let log_path_clone = log_path.clone();
+    panic::set_hook(Box::new(move |info| {
+        let msg = format!("[PANIC] {}", info);
+        eprintln!("{}", msg);
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_path_clone) {
+            let _ = writeln!(f, "{} {}", chrono_now(), msg);
+        }
+    }));
+
+    eprintln!("[KITE] 日志文件: {}", log_path.display());
+}
+
+fn chrono_now() -> String {
+    use std::time::SystemTime;
+    let d = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+    let secs = d.as_secs();
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    format!("{:02}:{:02}:{:02}", h, m, s)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_local_logging();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -17,6 +74,18 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine::EngineState::new())
         .setup(|app| {
+            // 启动时清理：如果上次异常退出残留了系统代理但引擎没跑，关掉代理
+            if system_proxy::is_enabled().unwrap_or(false) {
+                // 快速检查 mihomo 是否在跑（TCP 连接 9090）
+                let api_alive = std::net::TcpStream::connect_timeout(
+                    &"127.0.0.1:9090".parse().unwrap(),
+                    std::time::Duration::from_millis(200),
+                ).is_ok();
+                if !api_alive {
+                    eprintln!("[KITE] 检测到残留系统代理（引擎未运行），自动关闭");
+                    let _ = system_proxy::disable();
+                }
+            }
             tray::create_tray(app)?;
             Ok(())
         })
@@ -56,9 +125,26 @@ pub fn run() {
             commands::set_autostart,
             commands::sync_tray_state,
             commands::apply_mixin_and_reload,
+            commands::rebuild_tray_with_proxies,
+            commands::test_node_tcp_delay,
+            commands::get_default_rules,
             commands::scan_local_clash_configs,
             commands::import_local_clash_config,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            use tauri::Manager;
+            if let tauri::RunEvent::Exit = event {
+                eprintln!("[KITE] App exiting, cleaning up...");
+                // 关系统代理（防止退出后代理残留→断网）
+                let _ = system_proxy::disable();
+                // 停 mihomo 进程
+                if let Some(state) = _app.try_state::<engine::EngineState>() {
+                    let mut eng = state.engine.lock().unwrap();
+                    let _ = eng.stop();
+                }
+                eprintln!("[KITE] Cleanup done.");
+            }
+        });
 }

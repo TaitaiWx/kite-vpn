@@ -29,6 +29,10 @@
     user-select: none;
     -webkit-user-select: none;
     letter-spacing: -0.01em;
+    /* 移动端：禁止缩放和长按菜单 */
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 
   html, body { overscroll-behavior: none; height: 100%; margin: 0; padding: 0; }
@@ -65,7 +69,7 @@
            dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.3)];
   }
 
-  /* ── Sidebar nav ── */
+  /* ── Sidebar nav (desktop) ── */
   .nav-item {
     @apply flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium
            text-gray-500 dark:text-gray-400
@@ -76,6 +80,22 @@
   .nav-item-active {
     @apply bg-primary-500/[0.08] text-primary-700 dark:text-primary-400
            dark:bg-primary-500/10;
+  }
+
+  /* ── Mobile bottom tab bar ── */
+  .mobile-tab {
+    @apply flex flex-col items-center justify-center gap-0.5 py-1.5 px-2
+           text-[10px] font-medium text-gray-400
+           transition-all duration-150;
+  }
+  .mobile-tab-active {
+    @apply text-primary-400;
+  }
+
+  /* ── Mobile safe area insets ── */
+  @supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    .safe-top { padding-top: env(safe-area-inset-top); }
   }
 
   /* ── Toggle ── */
@@ -133,6 +153,34 @@
   .animate-slide-up { animation: slideUp 0.3s ease-out; }
   .animate-slide-in { animation: slideIn 0.2s ease-out; }
   .text-gradient { @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-400 to-cyan-400; }
+
+  /* ── 移动端触摸适配 ─────────────────────────────── */
+  @media (max-width: 639px) {
+    /* 更大的点击热区 */
+    .btn { @apply py-3 px-5 text-[14px]; }
+    .nav-item { @apply py-3 px-4 text-[14px]; }
+    .input { @apply py-3 text-[15px]; }
+
+    /* 卡片间距 */
+    .card-glass, .card { @apply rounded-xl; }
+
+    /* 模态框全屏 */
+    .modal-content { @apply rounded-none m-0 max-w-full h-full; }
+
+    /* 隐藏桌面元素 */
+    .desktop-only { display: none !important; }
+
+    /* 页面留出底部 tab bar 高度 */
+    .page-content { padding-bottom: 72px; }
+
+    /* 滚动条移动端隐藏（用原生滚动） */
+    ::-webkit-scrollbar { display: none; }
+  }
+
+  /* 触摸设备的 hover 效果抑制 */
+  @media (hover: none) {
+    .hover\:bg-surface-2:hover { background-color: inherit; }
+  }
 
   /* CSS Tooltip — 横向，显示在元素右侧 */
   [data-tip] { position: relative; }

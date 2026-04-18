@@ -25,8 +25,14 @@ serde_json = "1"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
-reqwest = { version = "0.12", features = ["json", "native-tls"] }
+reqwest = { version = "0.12", features = ["json", "native-tls", "gzip", "brotli", "deflate"] }
 urlencoding = "2"
 flate2 = "1"
 tauri-plugin-updater = "2"
 dirs = "6"
+futures = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSDictionary", "NSValue"] }
+objc2-app-kit = { version = "0.3", features = ["NSMenu", "NSMenuItem", "NSColor", "NSFont", "NSParagraphStyle", "NSText"] }

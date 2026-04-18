@@ -81,12 +81,44 @@ export function generateAppRules(): RoutingRule[] {
   return rules
 }
 
-export function generateAppProxyGroups(nodeNames: string[]): Array<{ name: string; type: 'select'; proxies: string[] }> {
-  const defaultChoices = ['🔰 节点选择', 'DIRECT', 'REJECT', '♻️ 自动选择']
+interface ProxyGroupOutput {
+  name: string
+  type: 'select' | 'url-test'
+  proxies: string[]
+  url?: string
+  interval?: number
+  tolerance?: number
+}
 
-  return APP_GROUPS.map((group) => ({
-    name: group.name,
-    type: 'select' as const,
-    proxies: [...defaultChoices, ...nodeNames.filter((n) => !defaultChoices.includes(n)).slice(0, 5)],
-  }))
+export function generateAppProxyGroups(nodeNames: string[]): ProxyGroupOutput[] {
+  const realNodes = nodeNames.filter((n) => {
+    // 过滤掉流量信息伪节点（"84.57 G | 500.00 G" 等）
+    if (/^\d+\.\d+\s*[GMKT]?B?\s*\|/.test(n)) return false
+    if (/Traffic|Expire|Reset/i.test(n)) return false
+    return true
+  })
+
+  const groups: ProxyGroupOutput[] = []
+
+  // ♻️ 自动选择：url-test 类型，自动测速选延迟最低的节点
+  groups.push({
+    name: '♻️ 自动选择',
+    type: 'url-test',
+    proxies: realNodes.length > 0 ? realNodes : ['DIRECT'],
+    url: 'http://www.gstatic.com/generate_204',
+    interval: 300,
+    tolerance: 50,
+  })
+
+  // App 分类组：每个引用 节点选择 / 自动选择 / DIRECT
+  const defaultChoices = ['🔰 节点选择', '♻️ 自动选择', 'DIRECT']
+  for (const group of APP_GROUPS) {
+    groups.push({
+      name: group.name,
+      type: 'select',
+      proxies: defaultChoices,
+    })
+  }
+
+  return groups
 }

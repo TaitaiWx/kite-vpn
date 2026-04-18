@@ -124,7 +124,7 @@ pub async fn apply_mixin_and_reload(app: AppHandle) -> IpcResult<String> {
     };
 
     if is_running {
-        let client = reqwest::Client::builder()
+        let client = reqwest::Client::builder().no_proxy()
             .timeout(std::time::Duration::from_secs(5))
             .build().unwrap();
         let cfg_path_str = config_file.to_string_lossy().to_string();
@@ -260,6 +260,73 @@ pub async fn import_local_clash_config(app: AppHandle, source_path: String) -> I
     // 清掉旧 base，下次 apply_mixin 会从新 config 重新做基线
     let _ = fs::remove_file(cfg_dir.join("config.base.yaml"));
     IpcResult::ok(format!("已导入 {} 字节", content.len()))
+}
+
+/// 读取 bundled default_config.yaml 里的 rules 数组，返回 JSON。
+/// 引擎未运行时 Rules 页用这个展示模板规则（而不是硬编码 4 条）。
+/// 直接 TCP 连接测速（不需要 mihomo 运行）。
+/// 测量到代理服务器的 TCP 握手延迟，跟 ClashX / Clash Verge 的独立测速一样。
+/// 引擎启动后调用：从 mihomo /proxies 拉数据重建托盘菜单（加入节点切换子菜单）
+#[tauri::command]
+pub async fn rebuild_tray_with_proxies(app: AppHandle) -> IpcResult<()> {
+    let client = reqwest::Client::builder().no_proxy()
+        .timeout(std::time::Duration::from_secs(3))
+        .build().unwrap();
+    match client.get("http://127.0.0.1:9090/proxies").send().await {
+        Ok(resp) => {
+            if let Ok(text) = resp.text().await {
+                crate::tray::rebuild_proxy_menu(&app, &text);
+                return IpcResult::ok(());
+            }
+            IpcResult::err("解析代理数据失败".to_string())
+        }
+        Err(e) => IpcResult::err(format!("获取代理列表失败: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub async fn test_node_tcp_delay(server: String, port: u16, timeout_ms: Option<u64>) -> IpcResult<u32> {
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(5000));
+    let addr = format!("{}:{}", server, port);
+    let start = std::time::Instant::now();
+    match tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&addr)).await {
+        Ok(Ok(_)) => {
+            let ms = start.elapsed().as_millis() as u32;
+            IpcResult::ok(ms)
+        }
+        Ok(Err(e)) => IpcResult::err(format!("连接失败: {}", e)),
+        Err(_) => IpcResult::err("超时".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn get_default_rules(app: AppHandle) -> IpcResult<String> {
+    let yaml_content = load_default_config_template(&app);
+    let val: serde_yaml::Value = match serde_yaml::from_str(&yaml_content) {
+        Ok(v) => v,
+        Err(e) => return IpcResult::err(format!("解析默认配置失败: {}", e)),
+    };
+    let rules = val.get("rules").cloned().unwrap_or(serde_yaml::Value::Sequence(vec![]));
+    let rules_seq = rules.as_sequence().cloned().unwrap_or_default();
+    // 转成 mihomo /rules API 相同格式的 JSON
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for r in &rules_seq {
+        if let Some(s) = r.as_str() {
+            let parts: Vec<&str> = s.splitn(3, ',').collect();
+            if parts.len() >= 2 {
+                let rule_type = parts[0].trim();
+                let payload = if parts.len() == 3 { parts[1].trim() } else { "" };
+                let proxy = parts.last().unwrap().trim()
+                    .replace(",no-resolve", "").replace(",src", "");
+                out.push(serde_json::json!({
+                    "type": rule_type,
+                    "payload": payload,
+                    "proxy": proxy,
+                }));
+            }
+        }
+    }
+    IpcResult::ok(serde_json::json!({ "rules": out }).to_string())
 }
 
 #[tauri::command]
@@ -473,21 +540,17 @@ pub async fn engine_start(app: AppHandle) -> IpcResult<EngineInfo> {
 
 #[tauri::command]
 pub async fn engine_stop(app: AppHandle) -> IpcResult<EngineInfo> {
-    let state = app.state::<EngineAppState>();
-    let mut engine = state.engine.lock().unwrap();
+    // 1. 先关系统代理（在停引擎之前，避免流量指向不存在的端口→断网）
+    let _ = system_proxy::disable();
 
-    // 先停引擎
-    if let Err(e) = engine.stop() {
-        return IpcResult::err(format!("停止引擎失败: {}", e));
-    }
-
-    // 尝试关闭系统代理，失败不阻断
-    if let Err(e) = system_proxy::disable() {
-        eprintln!("关闭系统代理失败（非致命）: {}", e);
+    // 2. 停引擎
+    {
+        let state = app.state::<EngineAppState>();
+        let mut engine = state.engine.lock().unwrap();
+        let _ = engine.stop(); // stop() 内部已有 killall fallback
     }
 
     update_tray_tooltip(&app, "已停止");
-    drop(engine);
     sync_tray_engine(&app, false);
     sync_tray_system_proxy(&app, false);
     IpcResult::ok(EngineInfo {
@@ -515,12 +578,24 @@ pub async fn engine_restart(app: AppHandle) -> IpcResult<EngineInfo> {
 
 #[tauri::command]
 pub async fn engine_get_state(app: AppHandle) -> IpcResult<EngineInfo> {
-    let state = app.state::<EngineAppState>();
-    let mut engine = state.engine.lock().unwrap();
+    let (child_running, pid) = {
+        let state = app.state::<EngineAppState>();
+        let mut engine = state.engine.lock().unwrap();
+        (engine.is_running(), engine.pid())
+    }; // MutexGuard 在这里 drop，不跨 await
 
-    let running = engine.is_running();
-    let pid = engine.pid();
+    // 即使 child process 不在（dev 重编译后丢失），也检查 mihomo API 是否响应
+    let api_running = if !child_running {
+        let client = reqwest::Client::builder().no_proxy()
+            .timeout(std::time::Duration::from_millis(500))
+            .build().unwrap();
+        client.get("http://127.0.0.1:9090/version").send().await
+            .map(|r| r.status().is_success()).unwrap_or(false)
+    } else {
+        true
+    };
 
+    let running = child_running || api_running;
     IpcResult::ok(EngineInfo {
         status: if running { "running" } else { "stopped" }.to_string(),
         version: None, pid, error: None,
@@ -537,49 +612,91 @@ pub struct FetchedSubscription {
     pub update_interval: Option<f64>,
 }
 
+/// 拉取远程订阅。
+///
+/// 健壮性措施：
+/// 1. User-Agent 伪装成 mihomo（大部分机场 CDN 白名单识别 clash/mihomo）
+/// 2. 自动解压 gzip/brotli/deflate（reqwest 开启 gzip feature）
+/// 3. 自动重试最多 2 次（间隔 1s、2s）
+/// 4. 空响应体视为失败（而不是返回空 content 让前端解析爆炸）
+/// 5. 超时默认 30s（部分机场 CDN 慢）
 #[tauri::command]
 pub async fn fetch_remote_subscription(url: String, timeout_ms: Option<u64>) -> IpcResult<FetchedSubscription> {
-    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(15000));
-    let client = reqwest::Client::builder()
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(30000));
+
+    let client = match reqwest::Client::builder().no_proxy()
         .timeout(timeout)
-        .user_agent("UniProxy/0.1.0 (Clash-compatible)")
+        // mihomo 的真实 UA —— 大部分机场 CDN 白名单识别这个
+        .user_agent(format!("clash.meta/{}", env!("CARGO_PKG_VERSION")))
+        .gzip(true)
+        .brotli(true)
+        .deflate(true)
+        // 跟随重定向（最多 10 跳）
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e));
-
-    let client = match client {
+    {
         Ok(c) => c,
-        Err(e) => return IpcResult::err(e),
+        Err(e) => return IpcResult::err(format!("创建 HTTP 客户端失败: {}", e)),
     };
 
-    let resp = match client.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => return IpcResult::err(format!("请求订阅失败: {}", e)),
-    };
+    // 最多重试 3 次（首次 + 2 次重试）
+    let max_retries = 2;
+    let mut last_err = String::new();
+    for attempt in 0..=max_retries {
+        if attempt > 0 {
+            eprintln!("[KITE] 订阅拉取重试 {}/{}: {}", attempt, max_retries, &url);
+            tokio::time::sleep(std::time::Duration::from_secs(attempt as u64)).await;
+        }
 
-    if !resp.status().is_success() {
-        return IpcResult::err(format!("HTTP {}: {}", resp.status().as_u16(), resp.status().canonical_reason().unwrap_or("未知错误")));
+        let resp = match client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("网络请求失败: {}", e);
+                continue;
+            }
+        };
+
+        let status = resp.status();
+        if !status.is_success() {
+            last_err = format!("HTTP {}: {}", status.as_u16(),
+                status.canonical_reason().unwrap_or("服务器返回错误"));
+            // 4xx 不重试（客户端错误 / 订阅 key 无效），5xx 才重试
+            if status.is_client_error() { break; }
+            continue;
+        }
+
+        let user_info = resp.headers().get("subscription-userinfo")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let content_type = resp.headers().get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let update_interval = resp.headers().get("profile-update-interval")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<f64>().ok());
+
+        let content = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => {
+                last_err = format!("读取响应体失败: {}", e);
+                continue;
+            }
+        };
+
+        // 空响应体 = 失败（CDN 返回 200 但没给内容，可能是地理限制或 bot 防护）
+        if content.trim().is_empty() {
+            last_err = "服务器返回空响应。可能原因：订阅已过期、CDN 地理限制、或需要从代理环境访问".to_string();
+            continue;
+        }
+
+        return IpcResult::ok(FetchedSubscription {
+            content, user_info, content_type, update_interval,
+        });
     }
 
-    let user_info = resp.headers().get("subscription-userinfo")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let content_type = resp.headers().get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let update_interval = resp.headers().get("profile-update-interval")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse::<f64>().ok());
-
-    let content = match resp.text().await {
-        Ok(t) => t,
-        Err(e) => return IpcResult::err(format!("读取响应体失败: {}", e)),
-    };
-
-    IpcResult::ok(FetchedSubscription {
-        content, user_info, content_type, update_interval,
-    })
+    IpcResult::err(last_err)
 }
 
 // ─── 配置文件 ───────────────────────────────────────────────────────────────
@@ -710,7 +827,7 @@ pub async fn get_system_proxy_status() -> IpcResult<bool> {
 #[tauri::command]
 pub async fn set_mode(app: AppHandle, mode: String, controller_url: Option<String>) -> IpcResult<()> {
     let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
     match client.patch(format!("{}/configs", url))
         .header("Content-Type", "application/json")
         .body(format!(r#"{{"mode":"{}"}}"#, mode))
@@ -729,7 +846,7 @@ pub async fn set_mode(app: AppHandle, mode: String, controller_url: Option<Strin
 #[tauri::command]
 pub async fn mihomo_get_connections(controller_url: Option<String>) -> IpcResult<String> {
     let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client::builder().no_proxy()
         .timeout(std::time::Duration::from_secs(2))
         .build().unwrap();
 
@@ -745,7 +862,7 @@ pub async fn mihomo_get_connections(controller_url: Option<String>) -> IpcResult
 #[tauri::command]
 pub async fn mihomo_get_proxies(controller_url: Option<String>) -> IpcResult<String> {
     let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client::builder().no_proxy()
         .timeout(std::time::Duration::from_secs(2))
         .build().unwrap();
 
@@ -761,7 +878,7 @@ pub async fn mihomo_get_proxies(controller_url: Option<String>) -> IpcResult<Str
 #[tauri::command]
 pub async fn mihomo_get_rules(controller_url: Option<String>) -> IpcResult<String> {
     let url = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client::builder().no_proxy()
         .timeout(std::time::Duration::from_secs(2))
         .build().unwrap();
 
@@ -796,7 +913,7 @@ pub async fn test_proxy_delay(
     let encoded_url = urlencoding::encode(&url);
     let api_url = format!("{}/proxies/{}/delay?url={}&timeout={}", base, encoded_name, encoded_url, timeout_ms);
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
     match client.get(&api_url).send().await {
         Ok(resp) => {
             if let Ok(text) = resp.text().await {
@@ -832,7 +949,7 @@ pub async fn mihomo_get_logs(since_index: Option<usize>) -> IpcResult<LogChunk> 
 #[tauri::command]
 pub async fn mihomo_get_version(controller_url: Option<String>) -> IpcResult<String> {
     let base = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client::builder().no_proxy()
         .timeout(std::time::Duration::from_secs(2))
         .build().unwrap();
 
@@ -858,7 +975,7 @@ pub async fn mihomo_get_version(controller_url: Option<String>) -> IpcResult<Str
 pub async fn mihomo_select_proxy(group: String, proxy: String, controller_url: Option<String>) -> IpcResult<()> {
     let base = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
     let encoded_group = urlencoding::encode(&group);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     match client.put(format!("{}/proxies/{}", base, encoded_group))
         .header("Content-Type", "application/json")
@@ -879,7 +996,7 @@ pub async fn mihomo_select_proxy(group: String, proxy: String, controller_url: O
 #[tauri::command]
 pub async fn mihomo_close_connections(controller_url: Option<String>) -> IpcResult<()> {
     let base = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     match client.delete(format!("{}/connections", base)).send().await {
         Ok(resp) if resp.status().is_success() => IpcResult::ok(()),
@@ -896,7 +1013,7 @@ pub async fn mihomo_close_connections(controller_url: Option<String>) -> IpcResu
 #[tauri::command]
 pub async fn mihomo_reload_config(controller_url: Option<String>, config_path: Option<String>) -> IpcResult<()> {
     let base = controller_url.unwrap_or_else(|| "http://127.0.0.1:9090".to_string());
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     let body = if let Some(path) = config_path {
         format!(r#"{{"path":"{}"}}"#, path.replace('\\', "\\\\").replace('"', "\\\""))

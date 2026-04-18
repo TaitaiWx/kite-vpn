@@ -29,18 +29,24 @@ import type {
  */
 export const DEFAULT_DNS_CONFIG: DnsConfig = {
   enabled: true,
-  listen: '0.0.0.0:53',
+  // 注意：不要用 53（需要 root）。1053 是 mihomo 的常用无特权端口。
+  listen: '127.0.0.1:1053',
   ipv6: false,
   enhancedMode: 'fake-ip',
   fakeIpRange: '198.18.0.1/16',
+  // 行业标准 DNS 设计（ClashX / Clash Verge 同款）：
+  //   nameservers = 国内 DNS（解析代理服务器域名 + 国内站点，必须从中国直连可达）
+  //   fallback    = 境外 DNS（解析被墙站点，通过代理访问）
+  //   fallback-filter 用 GeoIP 自动判断该用哪个
   nameservers: [
+    '223.5.5.5',
+    '119.29.29.29',
     'https://doh.pub/dns-query',
-    'https://dns.alidns.com/dns-query',
   ],
   fallback: [
-    'https://1.1.1.1/dns-query',
     'https://dns.google/dns-query',
-    'https://dns.cloudflare.com/dns-query',
+    'https://1.1.1.1/dns-query',
+    '8.8.8.8',
   ],
   fallbackFilter: {
     geoip: true,

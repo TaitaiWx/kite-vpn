@@ -119,9 +119,8 @@ export function NumberInput({
       ref={rootRef}
       className={clsx(
         'relative inline-flex items-stretch rounded-lg',
-        'bg-surface-2 border border-border',
-        'hover:border-gray-400/30',
-        'focus-within:ring-2 focus-within:ring-primary-500/30 focus-within:border-primary-500/50',
+        'bg-surface-2',
+        'focus-within:ring-2 focus-within:ring-primary-500/30',
         'transition-all',
         disabled && 'opacity-40 cursor-not-allowed',
         className,
@@ -167,7 +166,7 @@ export function NumberInput({
           tabIndex={-1}
           aria-label="选择常见端口"
           className={clsx(
-            'flex items-center justify-center pr-2.5 pl-1 rounded-r-lg',
+            'flex items-center justify-center pr-2.5 pl-1',
             'text-gray-400 hover:text-gray-100',
             'disabled:opacity-30 transition-colors',
           )}

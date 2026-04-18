@@ -5,7 +5,7 @@
  * NO `any` types used anywhere.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -104,12 +104,34 @@ const MODE_ORDER: readonly ProxyMode[] = ['rule', 'global', 'direct'] as const
 // App component
 // ---------------------------------------------------------------------------
 
+// 平台检测：Tauri mobile 或小屏 → 移动端布局
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() => {
+    if (typeof window === 'undefined') return false
+    // Tauri mobile 注入的标识
+    if ('__TAURI_INTERNALS__' in window) {
+      const w = window as Record<string, unknown>
+      const meta = w['__TAURI_INTERNALS__'] as Record<string, unknown> | undefined
+      if (meta?.['platform'] === 'android' || meta?.['platform'] === 'ios') return true
+    }
+    return window.innerWidth < 640
+  })
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    const onChange = (e: MediaQueryListEvent) => setMobile(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return mobile
+}
+
 export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [showSetup, setShowSetup] = useState(false)
   const [setupChecked, setSetupChecked] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   const engineState = useEngineStore((s) => s.state)
   const traffic = useEngineStore((s) => s.traffic)
@@ -359,6 +381,83 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [handleEngineToggle, handleModeChange])
 
+  // ── 路由页面（桌面和移动共用） ──
+  const routeContent = (
+    <Routes>
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/proxies" element={<Proxies />} />
+      <Route path="/subscriptions" element={<Subscriptions />} />
+      <Route path="/rules" element={<Rules />} />
+      <Route path="/connections" element={<Connections />} />
+      <Route path="/logs" element={<Logs />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  )
+
+  // ── 移动端布局 ──
+  if (isMobile) {
+    const MOBILE_TABS = NAV_ITEMS.slice(0, 5) // 仪表盘 / 代理 / 订阅 / 规则 / 连接
+    return (
+      <div className="flex flex-col h-screen w-screen overflow-hidden bg-surface-0">
+        <ToastContainer />
+        {showSetup && <SetupWizard onComplete={() => setShowSetup(false)} />}
+
+        {/* ── 移动端顶栏 ── */}
+        <div className="flex items-center justify-between h-[48px] bg-surface-1 border-b border-border flex-shrink-0 px-4 safe-top">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-gradient-to-br from-cyan-400 to-teal-500">
+              <Zap className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span className="text-[14px] font-bold text-gray-200">Kite</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={engineState.status} size="sm" />
+            <button type="button" onClick={handleEngineToggle} disabled={isTransitioning}
+              className={clsx(
+                'flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all',
+                isRunning ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400',
+                isTransitioning && 'opacity-40',
+              )}
+            >
+              {isRunning ? <ZapOff className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
+              <span>{isTransitioning ? '…' : isRunning ? '停止' : '启动'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── 页面内容 ── */}
+        <main className="flex-1 min-h-0 overflow-y-auto">
+          {routeContent}
+        </main>
+
+        {/* ── 底部 Tab Bar ── */}
+        <nav className="flex items-center justify-around bg-surface-1 border-t border-border flex-shrink-0 safe-bottom">
+          {MOBILE_TABS.map((item) => {
+            const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+            return (
+              <NavLink key={item.path} to={item.path}
+                className={clsx('mobile-tab flex-1', isActive && 'mobile-tab-active')}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </NavLink>
+            )
+          })}
+          {/* 更多菜单（日志 / 设置） */}
+          <NavLink to="/settings"
+            className={clsx('mobile-tab flex-1',
+              (location.pathname === '/settings' || location.pathname === '/logs') && 'mobile-tab-active')}
+          >
+            <SettingsIcon size={18} />
+            <span>更多</span>
+          </NavLink>
+        </nav>
+      </div>
+    )
+  }
+
+  // ── 桌面端布局 ──
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-surface-0">
       <ToastContainer />
@@ -390,7 +489,7 @@ export default function App() {
             )}
           >
             {isRunning ? <ZapOff className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-            <span>{isTransitioning ? '…' : isRunning ? '停止' : '启动'}</span>
+            <span>{isTransitioning ? '…' : isRunning ? '关闭' : '开启'}</span>
           </button>
 
           <div className="w-px h-4 bg-border mx-0.5" />
@@ -428,18 +527,16 @@ export default function App() {
             </>
           )}
 
-          <div className="w-px h-4 bg-border mx-0.5" />
-
-          <button type="button" onClick={toggleSystemProxy}
-            aria-label={systemProxy ? '关闭系统代理' : '开启系统代理'}
-            className={clsx(
-              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-all',
-              systemProxy ? 'bg-emerald-500/10 text-emerald-500' : 'text-gray-400',
-            )}
-          >
-            {systemProxy ? <Shield className="h-3 w-3" /> : <ShieldOff className="h-3 w-3" />}
-            <span>{systemProxy ? '代理' : '直连'}</span>
-          </button>
+          {/* 系统代理状态指示（不再是单独按钮，引擎启停时自动控制） */}
+          {systemProxy && (
+            <>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <span className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-emerald-500">
+                <Shield className="h-3 w-3" />
+                <span>代理</span>
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -489,16 +586,7 @@ export default function App() {
           {/* ── 页面 ── */}
           <main className="flex-1 min-h-0 overflow-hidden">
             <div className="h-full overflow-y-auto">
-              <Routes>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/proxies" element={<Proxies />} />
-                <Route path="/subscriptions" element={<Subscriptions />} />
-                <Route path="/rules" element={<Rules />} />
-                <Route path="/connections" element={<Connections />} />
-                <Route path="/logs" element={<Logs />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
+              {routeContent}
             </div>
           </main>
         </div>

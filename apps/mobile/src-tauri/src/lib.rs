@@ -1,4 +1,5 @@
 mod commands;
+mod vpn;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +28,9 @@ pub fn run() {
             commands::mihomo_reload_config,
             commands::mihomo_select_proxy,
             commands::test_proxy_delay,
+            vpn::start_vpn,
+            vpn::stop_vpn,
+            vpn::get_vpn_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

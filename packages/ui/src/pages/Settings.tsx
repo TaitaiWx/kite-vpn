@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { AppConfig, ProxyMode, LogLevel } from '@kite-vpn/types'
-import { getMockAppConfig, loadAppConfig, saveAppConfig } from '@/lib/ipc'
+import { loadAppConfig, saveAppConfig } from '@/lib/ipc'
 import { toast } from '@/stores/toast'
 import { Tooltip } from '@/components/Tooltip'
 import { HelpCircle } from 'lucide-react'
@@ -224,7 +224,17 @@ export function Settings() {
   useEffect(() => {
     void (async () => {
       const result = await loadAppConfig()
-      const cfg = (result.success && result.data) ? result.data : getMockAppConfig()
+      const cfg: AppConfig = (result.success && result.data) ? result.data : {
+        theme: 'dark', language: 'zh-CN', autoStart: false, systemProxy: true,
+        startMinimized: false, checkUpdateOnStart: true,
+        engineConfig: {
+          mixedPort: 7890, allowLan: false, mode: 'rule', logLevel: 'info',
+          externalController: '127.0.0.1:9090',
+          dns: { enabled: true, enhancedMode: 'fake-ip', fakeIpRange: '198.18.0.1/16',
+            nameservers: ['https://dns.google/dns-query', '8.8.8.8'],
+            fallback: ['https://1.1.1.1/dns-query'], ipv6: false },
+        },
+      }
       setConfig(cfg)
       // 应用主题
       if (cfg.theme === 'dark') document.documentElement.classList.add('dark')
@@ -354,8 +364,11 @@ export function Settings() {
   }, [config])
 
   // Reset handler
-  const handleReset = useCallback(() => {
-    setConfig(getMockAppConfig())
+  const handleReset = useCallback(async () => {
+    const result = await loadAppConfig()
+    if (result.success && result.data) {
+      setConfig(result.data)
+    }
     setSaved(false)
   }, [])
 
@@ -428,7 +441,7 @@ export function Settings() {
       {/* 左右布局：左侧快速导航 + 右侧内容 */}
       <div className="flex-1 overflow-hidden flex">
         {/* 左侧导航 */}
-        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5">
+        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5 hidden sm:block">
           {[
             { id: 'general', icon: <Monitor size={14} />, label: '通用' },
             { id: 'network', icon: <Wifi size={14} />, label: '网络' },

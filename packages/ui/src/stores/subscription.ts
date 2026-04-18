@@ -17,6 +17,7 @@ import {
   generateAppRuleProviders,
   generateAppRules,
   generateAppProxyGroups,
+  detectRegion,
 } from '@kite-vpn/core'
 import type { ProxyGroupConfig } from '@kite-vpn/types'
 import { toast } from '@/stores/toast'
@@ -90,7 +91,22 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
     if (get().loaded) return
     const result = await ipcLoad()
     const real = (result.success && result.data) ? result.data : []
+    // 迁移：旧数据可能没有 region 字段，加载时自动补全
+    let needsPersist = false
+    for (const sub of real) {
+      for (const node of sub.nodes) {
+        if (!node.region) {
+          const region = detectRegion(node.name)
+          if (region) {
+            node.region = region.name
+            node.regionEmoji = region.emoji
+            needsPersist = true
+          }
+        }
+      }
+    }
     set({ subscriptions: real, loaded: true, hasRealData: real.length > 0 })
+    if (needsPersist) void get().persist()
   },
 
   persist: async () => {
@@ -111,6 +127,8 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
   removeSubscription: async (id) => {
     set((s) => ({ subscriptions: s.subscriptions.filter((sub) => sub.id !== id) }))
     await get().persist()
+    // 删除后重新生成配置（排除已删除的节点）
+    await get().applyConfig()
   },
 
   updateSubscription: (id, patch) => {
@@ -129,6 +147,8 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
       ),
     }))
     void get().persist()
+    // 启用/禁用后重新生成配置
+    void get().applyConfig()
   },
 
   setSubscriptionStatus: (id, status, error) =>
@@ -145,6 +165,11 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
     })),
 
   // 通过 Rust IPC 拉取（无 CORS），然后用 core 解析
+  // 错误恢复策略：
+  //   - 拉取失败 → 保留旧节点（如果有），只更新 status + error 字段
+  //   - 解析失败 → 同上，保留旧节点
+  //   - 解析出 0 节点 → 视为异常，提示用户检查 URL
+  //   - 网络超时 → Rust 侧已有重试（2 次），这里不再重试
   refreshSubscription: async (id) => {
     const { subscriptions, setSubscriptionStatus, persist } = get()
     const sub = subscriptions.find((s) => s.id === id)
@@ -156,7 +181,12 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
     if (!result.success || !result.data) {
       const msg = result.error ?? '拉取失败'
       setSubscriptionStatus(id, 'error', msg)
-      toast(`${sub.name}: ${msg}`, 'error')
+      // 保留旧节点：用户仍可用之前拉到的节点，不至于"一次失败全空"
+      if (sub.nodes.length > 0) {
+        toast(`${sub.name}: 更新失败（保留旧节点 ${sub.nodes.length} 个）— ${msg}`, 'warning')
+      } else {
+        toast(`${sub.name}: ${msg}`, 'error')
+      }
       return
     }
 
@@ -165,6 +195,12 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
       const userInfo = result.data.user_info
         ? parseUserInfoHeader(result.data.user_info)
         : undefined
+
+      if (nodes.length === 0) {
+        setSubscriptionStatus(id, 'error', '解析出 0 个节点，请检查订阅 URL 是否正确')
+        toast(`${sub.name}: 解析出 0 个节点，请检查 URL`, 'warning')
+        return
+      }
 
       set((s) => ({
         subscriptions: s.subscriptions.map((item) =>
@@ -183,10 +219,17 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
 
       toast(`${sub.name}: 更新成功，${nodes.length} 个节点`, 'success')
       await persist()
+      // 关键：解析出节点后自动写入引擎 config.yaml 并热重载
+      await get().applyConfig()
     } catch (e) {
       const msg = e instanceof Error ? e.message : '解析失败'
       setSubscriptionStatus(id, 'error', msg)
-      toast(`${sub.name}: ${msg}`, 'error')
+      // 保留旧节点
+      if (sub.nodes.length > 0) {
+        toast(`${sub.name}: 解析失败（保留旧节点）— ${msg}`, 'warning')
+      } else {
+        toast(`${sub.name}: ${msg}`, 'error')
+      }
     }
   },
 
@@ -206,6 +249,11 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
   },
 
   applyConfig: async () => {
+    // 防抖：500ms 内多次调用只执行最后一次
+    const now = Date.now()
+    if (now - _lastApplyTs < 500) return
+    _lastApplyTs = now
+
     const { subscriptions, mergeStrategy } = get()
     const enabledSubs = subscriptions.filter((s) => s.enabled && s.nodes.length > 0)
     if (enabledSubs.length === 0) return
@@ -241,17 +289,24 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
       return
     }
 
-    // 写入成功后通知 mihomo 重载配置（如果引擎在运行）
-    const reloadResult = await mihomoReloadConfig(writeResult.data ?? undefined)
-    if (reloadResult.success) {
-      toast(`配置已应用：${mergeResult.nodes.length} 个节点，${mergeResult.groups.length} 个分组`, 'success')
+    // 写入成功后尝试热重载（引擎未启动则跳过，不弹 warning）
+    const { useEngineStore } = await import('./engine')
+    const engineRunning = useEngineStore.getState().state.status === 'running'
+    if (engineRunning) {
+      const reloadResult = await mihomoReloadConfig(writeResult.data ?? undefined)
+      if (reloadResult.success) {
+        toast(`配置已应用：${mergeResult.nodes.length} 个节点，${mergeResult.groups.length} 个分组`, 'success')
+      } else {
+        toast(`配置已写入，但热重载失败：${reloadResult.error ?? '未知'}`, 'warning')
+      }
     } else {
-      toast(`配置已写入，但引擎重载失败（引擎可能未启动）`, 'warning')
+      toast(`配置已保存（${mergeResult.nodes.length} 个节点），启动引擎后生效`, 'success')
     }
   },
 }))
 
 // ── 订阅自动刷新 timer ──
+let _lastApplyTs = 0
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 export function startAutoRefresh() {

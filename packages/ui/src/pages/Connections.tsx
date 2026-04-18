@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { ConnectionInfo } from '@kite-vpn/types'
-import { getMockConnections, mihomoGetConnections, mihomoCloseConnections } from '@/lib/ipc'
+import { mihomoGetConnections, mihomoCloseConnections } from '@/lib/ipc'
 import { toast } from '@/stores/toast'
 import { useEngineStore } from '@/stores/engine'
 import { formatBytes, formatSpeed, formatDuration } from '@/lib/format'
@@ -287,59 +287,49 @@ export function Connections() {
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const engineStatus = useEngineStore((s) => s.state.status)
 
+  // 连接轮询：不依赖 engineStatus，直接尝试从 API 拉
   useEffect(() => {
     async function refresh() {
       if (paused) return
-
-      if (engineStatus === 'running') {
-        const result = await mihomoGetConnections()
-        if (result.success && result.data) {
-          try {
-            const data = JSON.parse(result.data) as {
-              connections?: Array<{
-                id: string
-                metadata: ConnectionInfo['metadata']
-                chains: string[]
-                rule: string
-                rulePayload: string
-                start: string
-                upload: number
-                download: number
-              }>
-              downloadTotal?: number
-              uploadTotal?: number
-            }
-            const conns: ConnectionInfo[] = (data.connections ?? []).map((c) => ({
-              id: c.id,
-              metadata: c.metadata,
-              chains: c.chains,
-              rule: c.rule,
-              rulePayload: c.rulePayload ?? '',
-              start: c.start,
-              upload: c.upload,
-              download: c.download,
-            }))
-            setConnections(conns)
-            setTotalUpload(data.uploadTotal ?? 0)
-            setTotalDownload(data.downloadTotal ?? 0)
-            return
-          } catch { /* 解析失败回退 mock */ }
-        }
+      const result = await mihomoGetConnections()
+      if (result.success && result.data) {
+        try {
+          const data = JSON.parse(result.data) as {
+            connections?: Array<{
+              id: string
+              metadata: ConnectionInfo['metadata']
+              chains: string[]
+              rule: string
+              rulePayload: string
+              start: string
+              upload: number
+              download: number
+            }>
+            downloadTotal?: number
+            uploadTotal?: number
+          }
+          const conns: ConnectionInfo[] = (data.connections ?? []).map((c) => ({
+            id: c.id,
+            metadata: c.metadata,
+            chains: c.chains,
+            rule: c.rule,
+            rulePayload: c.rulePayload ?? '',
+            start: c.start,
+            upload: c.upload,
+            download: c.download,
+          }))
+          setConnections(conns)
+          setTotalUpload(data.uploadTotal ?? 0)
+          setTotalDownload(data.downloadTotal ?? 0)
+        } catch { /* ignore */ }
       }
-
-      const conns = getMockConnections()
-      setConnections(conns)
-      setTotalUpload(conns.reduce((acc, c) => acc + c.upload, 0))
-      setTotalDownload(conns.reduce((acc, c) => acc + c.download, 0))
+      // API 不响应时保持当前值，不清空
     }
 
     void refresh()
     refreshRef.current = setInterval(() => { void refresh() }, 1000)
-
-    return () => {
-      if (refreshRef.current) clearInterval(refreshRef.current)
-    }
-  }, [paused, engineStatus])
+    return () => { if (refreshRef.current) clearInterval(refreshRef.current) }
+  }, [paused])
 
   // Handle sort toggle
   const handleSort = useCallback((field: SortField) => {

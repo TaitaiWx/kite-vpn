@@ -75,8 +75,8 @@ func (q *quicStreamPacketConn) close() (err error) {
 }
 
 func (q *quicStreamPacketConn) SetDeadline(t time.Time) error {
-	//TODO implement me
-	return nil
+	// SetReadDeadline 是唯一能真正生效的，写操作走按需 stream 没有持久写连接。
+	return q.SetReadDeadline(t)
 }
 
 func (q *quicStreamPacketConn) SetReadDeadline(t time.Time) error {
@@ -87,7 +87,7 @@ func (q *quicStreamPacketConn) SetReadDeadline(t time.Time) error {
 }
 
 func (q *quicStreamPacketConn) SetWriteDeadline(t time.Time) error {
-	//TODO implement me
+	// QUIC packet conn 的写操作是按需开 stream，无持久写连接可设 deadline。
 	return nil
 }
 

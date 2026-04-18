@@ -24,6 +24,21 @@ impl EngineProcess {
             let _ = self.stop();
         }
 
+        // 清理可能残留的 mihomo 进程（上次异常退出没 stop 的情况）
+        // 用 killall 而不是 pkill，不需要 sudo
+        #[cfg(unix)]
+        {
+            // 先尝试 graceful
+            let _ = Command::new("killall").args(["-TERM", "mihomo-aarch64-apple-darwin"]).output();
+            let _ = Command::new("killall").args(["-TERM", "mihomo-x86_64-apple-darwin"]).output();
+            let _ = Command::new("killall").args(["-TERM", "mihomo-x86_64-unknown-linux-gnu"]).output();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            // 如果还没退就强杀
+            let _ = Command::new("killall").args(["-KILL", "mihomo-aarch64-apple-darwin"]).output();
+            let _ = Command::new("killall").args(["-KILL", "mihomo-x86_64-apple-darwin"]).output();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
         let mut child = Command::new(mihomo_path)
             .arg("-d")
             .arg(config_dir)
@@ -68,6 +83,13 @@ impl EngineProcess {
         if let Some(mut child) = self.child.take() {
             child.kill().map_err(|e| format!("停止引擎失败: {}", e))?;
             child.wait().ok();
+        }
+        // 即使 child 引用丢了（dev 重编译），也用 killall 确保 mihomo 进程被停止
+        #[cfg(unix)]
+        {
+            let _ = Command::new("killall").args(["-TERM", "mihomo-aarch64-apple-darwin"]).output();
+            let _ = Command::new("killall").args(["-TERM", "mihomo-x86_64-apple-darwin"]).output();
+            let _ = Command::new("killall").args(["-TERM", "mihomo-x86_64-unknown-linux-gnu"]).output();
         }
         Ok(())
     }

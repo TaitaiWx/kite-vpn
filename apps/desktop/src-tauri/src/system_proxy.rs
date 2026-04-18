@@ -45,28 +45,9 @@ pub fn is_enabled() -> Result<bool, String> {
     Ok(false)
 }
 
-// ─── macOS（通过 osascript 提权执行 networksetup）────────────────────────────
-
-#[cfg(target_os = "macos")]
-fn run_networksetup_privileged(script: &str) -> Result<(), String> {
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(format!(
-            r#"do shell script "{}" with administrator privileges"#,
-            script.replace('\\', "\\\\").replace('"', "\\\"")
-        ))
-        .output()
-        .map_err(|e| format!("执行 osascript 失败: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("User canceled") || stderr.contains("-128") {
-            return Err("用户取消了授权".to_string());
-        }
-        return Err(format!("设置系统代理失败: {}", stderr.trim()));
-    }
-    Ok(())
-}
+// ─── macOS ─────────────────────────────────────────────────────────────────
+// networksetup 修改代理设置在 macOS 10.15+ 不需要 admin 权限。
+// 直接用 Command::new("networksetup").args([...]) 调用，不走 shell，不弹密码。
 
 #[cfg(target_os = "macos")]
 fn get_network_services() -> Result<Vec<String>, String> {
@@ -87,49 +68,46 @@ fn get_network_services() -> Result<Vec<String>, String> {
 #[cfg(target_os = "macos")]
 fn enable_macos(config: &ProxyConfig) -> Result<(), String> {
     let services = get_network_services()?;
-    let mut cmds = Vec::new();
+    let host = &config.host;
+    let port = config.port.to_string();
 
     for service in &services {
-        let s = service.replace('\'', "'\\''");
-        let addr = &config.host;
-        let port = config.port;
-        cmds.push(format!("networksetup -setwebproxy '{}' {} {}", s, addr, port));
-        cmds.push(format!("networksetup -setwebproxystate '{}' on", s));
-        cmds.push(format!("networksetup -setsecurewebproxy '{}' {} {}", s, addr, port));
-        cmds.push(format!("networksetup -setsecurewebproxystate '{}' on", s));
-        cmds.push(format!("networksetup -setsocksfirewallproxy '{}' {} {}", s, addr, port));
-        cmds.push(format!("networksetup -setsocksfirewallproxystate '{}' on", s));
+        // 每条命令单独调用，service 名作为独立参数传入（不需要引号处理）
+        let _ = Command::new("networksetup").args(["-setwebproxy", service, host, &port]).output();
+        let _ = Command::new("networksetup").args(["-setwebproxystate", service, "on"]).output();
+        let _ = Command::new("networksetup").args(["-setsecurewebproxy", service, host, &port]).output();
+        let _ = Command::new("networksetup").args(["-setsecurewebproxystate", service, "on"]).output();
+        let _ = Command::new("networksetup").args(["-setsocksfirewallproxy", service, host, &port]).output();
+        let _ = Command::new("networksetup").args(["-setsocksfirewallproxystate", service, "on"]).output();
     }
-
-    let script = cmds.join(" && ");
-    run_networksetup_privileged(&script)
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
 fn disable_macos() -> Result<(), String> {
     let services = get_network_services()?;
-    let mut cmds = Vec::new();
-
     for service in &services {
-        let s = service.replace('\'', "'\\''");
-        cmds.push(format!("networksetup -setwebproxystate '{}' off", s));
-        cmds.push(format!("networksetup -setsecurewebproxystate '{}' off", s));
-        cmds.push(format!("networksetup -setsocksfirewallproxystate '{}' off", s));
+        let _ = Command::new("networksetup").args(["-setwebproxystate", service, "off"]).output();
+        let _ = Command::new("networksetup").args(["-setsecurewebproxystate", service, "off"]).output();
+        let _ = Command::new("networksetup").args(["-setsocksfirewallproxystate", service, "off"]).output();
     }
-
-    let script = cmds.join(" && ");
-    run_networksetup_privileged(&script)
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
 fn is_enabled_macos() -> Result<bool, String> {
-    let output = Command::new("networksetup")
-        .args(["-getwebproxy", "Wi-Fi"])
-        .output()
-        .map_err(|e| format!("获取代理状态失败: {}", e))?;
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(text.contains("Enabled: Yes"))
+    let services = get_network_services()?;
+    // 检查第一个有效 service（通常是 Wi-Fi 或 Ethernet）
+    for service in &services {
+        let output = Command::new("networksetup")
+            .args(["-getwebproxy", service])
+            .output();
+        if let Ok(o) = output {
+            let text = String::from_utf8_lossy(&o.stdout);
+            if text.contains("Enabled: Yes") { return Ok(true); }
+        }
+    }
+    Ok(false)
 }
 
 // ─── Windows ────────────────────────────────────────────────────────────────

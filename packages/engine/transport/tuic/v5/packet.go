@@ -79,8 +79,14 @@ func (q *quicStreamPacketConn) close() (err error) {
 }
 
 func (q *quicStreamPacketConn) SetDeadline(t time.Time) error {
-	//TODO implement me
-	return nil
+	var errs []error
+	if err := q.SetReadDeadline(t); err != nil {
+		errs = append(errs, err)
+	}
+	if err := q.SetWriteDeadline(t); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func (q *quicStreamPacketConn) SetReadDeadline(t time.Time) error {
@@ -91,7 +97,8 @@ func (q *quicStreamPacketConn) SetReadDeadline(t time.Time) error {
 }
 
 func (q *quicStreamPacketConn) SetWriteDeadline(t time.Time) error {
-	//TODO implement me
+	// QUIC packet conn 的写操作是按需开 stream，无持久写连接可设 deadline。
+	// 返回 nil 语义等同于"不限时"，与 QUIC 的 stream-per-packet 模型一致。
 	return nil
 }
 

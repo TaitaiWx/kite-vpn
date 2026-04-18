@@ -33,6 +33,7 @@ import { parse as parseYaml } from "yaml";
 import { parseProxyUri } from "../protocol/index.js";
 import { safeBase64Decode } from "../utils/base64.js";
 import { generateId } from "../utils/id.js";
+import { detectRegion } from "../utils/region.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -251,12 +252,15 @@ function convertClashProxyToNode(
   const settings = buildSettings(protocol, proxy);
   if (!settings) return null;
 
+  const region = detectRegion(name);
+
   return {
     id: generateId(),
     name,
     server,
     port,
     settings,
+    ...(region ? { region: region.name, regionEmoji: region.emoji } : {}),
   };
 }
 

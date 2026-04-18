@@ -173,6 +173,11 @@ export async function testProxyDelay(name: string, testUrl?: string, timeout?: n
   return invoke<ProxyDelay>('test_proxy_delay', { name, testUrl, timeout })
 }
 
+/** 直接 TCP 连接测速（不依赖 mihomo，引擎未运行也能用） */
+export async function testNodeTcpDelay(server: string, port: number, timeoutMs?: number): Promise<IpcResult<number>> {
+  return invoke<number>('test_node_tcp_delay', { server, port, timeoutMs })
+}
+
 // ---------------------------------------------------------------------------
 // 远程订阅拉取（走 Rust 侧，无 CORS）
 // ---------------------------------------------------------------------------

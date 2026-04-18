@@ -34,7 +34,8 @@ import {
 import { clsx } from 'clsx'
 import type { Subscription, SubscriptionStatus } from '@kite-vpn/types'
 import { useSubscriptionStore } from '@/stores/subscription'
-import { getMockSubscriptions, invoke } from '@/lib/ipc'
+import { invoke } from '@/lib/ipc'
+import { NumberInput } from '@/components/NumberInput'
 import { formatBytes, formatDate, formatRelativeTime } from '@/lib/format'
 import { toast } from '@/stores/toast'
 
@@ -147,7 +148,6 @@ interface SubscriptionRowProps {
   onToggle: (id: string) => void
   onEdit: (subscription: Subscription) => void
   onDelete: (id: string) => void
-  isDemo?: boolean
 }
 
 function SubscriptionRow({
@@ -156,7 +156,6 @@ function SubscriptionRow({
   onToggle,
   onEdit,
   onDelete,
-  isDemo,
 }: SubscriptionRowProps) {
   const statusVisual = getStatusVisual(subscription.status, subscription.error)
   const isUpdating = subscription.status === 'updating'
@@ -196,11 +195,6 @@ function SubscriptionRow({
             {!subscription.enabled && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400">
                 已禁用
-              </span>
-            )}
-            {isDemo && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-400">
-                演示展示
               </span>
             )}
           </div>
@@ -425,14 +419,19 @@ function SubscriptionModal({ open, editing, onClose, onSubmit }: SubscriptionMod
             >
               自动更新间隔（小时）
             </label>
-            <input
-              id="sub-interval"
-              type="number"
-              min="1"
-              max="168"
-              value={interval}
-              onChange={(e) => setInterval(e.target.value)}
-              className="input w-28"
+            <NumberInput
+              value={parseInt(interval, 10) || 12}
+              onChange={(v) => setInterval(String(v))}
+              min={1}
+              max={168}
+              suggestions={[
+                { value: 1, label: '每小时' },
+                { value: 6, label: '每 6 小时' },
+                { value: 12, label: '每 12 小时', hint: '推荐' },
+                { value: 24, label: '每天' },
+                { value: 72, label: '每 3 天' },
+              ]}
+              className="w-40"
             />
           </div>
 
@@ -522,15 +521,13 @@ export function Subscriptions() {
   const refreshAll = useSubscriptionStore((s) => s.refreshAll)
 
   // 没有真实数据时展示 mock（带演示标记）
-  const isDemo = !hasRealData && subscriptions.length === 0
-
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [localConfigs, setLocalConfigs] = useState<LocalClashConfig[]>([])
   const [importingPath, setImportingPath] = useState<string | null>(null)
-  const displaySubs = isDemo ? getMockSubscriptions() : subscriptions
+  const displaySubs = subscriptions
 
   const openImport = useCallback(() => {
     setImportOpen(true)
@@ -633,7 +630,6 @@ export function Subscriptions() {
           <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">订阅管理</h1>
           <p className="text-[11px] text-gray-400 mt-0.5">
             {displaySubs.length} 个订阅 · {enabledCount} 启用 · {totalNodes} 个节点
-            {isDemo && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400">演示数据</span>}
           </p>
         </div>
 
@@ -692,7 +688,6 @@ export function Subscriptions() {
                 onToggle={toggleSubscription}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
-                isDemo={isDemo}
               />
             ))}
           </div>

@@ -14,7 +14,8 @@
  * - MATCH: 兜底规则，前面都不匹配时走这条
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEngineStore } from '@/stores/engine'
 import {
   Search,
   Filter,
@@ -29,7 +30,7 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mihomoGetRules, getMockRules, loadAppConfig, saveAppConfig, invoke } from '@/lib/ipc'
+import { mihomoGetRules, loadAppConfig, saveAppConfig, invoke } from '@/lib/ipc'
 import { toast } from '@/stores/toast'
 import { Select } from '@/components/Select'
 import { Tooltip } from '@/components/Tooltip'
@@ -310,13 +311,28 @@ export function Rules() {
           return
         }
       } catch {
-        // 解析失败 → 用 mock
+        // 解析失败
       }
     }
-    setRules(getMockRules().map((r) => ({ type: r.type, payload: r.payload, proxy: r.target })))
+    // 引擎未启动时：从 bundled default_config.yaml 读取 7100 条模板规则
+    try {
+      const tmpl = await invoke<string>('get_default_rules', {})
+      if (tmpl.success && tmpl.data) {
+        const parsed = JSON.parse(tmpl.data) as MihomoRulesResponse
+        if (parsed.rules && parsed.rules.length > 0) {
+          setRules(parsed.rules)
+          setHasRealData(false)
+          setLoading(false)
+          return
+        }
+      }
+    } catch { /* fallback below */ }
+    setRules([])
     setHasRealData(false)
     setLoading(false)
   }
+
+  const engineStatus = useEngineStore((s) => s.state.status)
 
   useEffect(() => {
     void load()
@@ -329,6 +345,15 @@ export function Rules() {
       }
     })()
   }, [])
+
+  // 引擎状态变化时自动刷新规则（从 mock → 真实数据）
+  useEffect(() => {
+    if (engineStatus === 'running') {
+      // 引擎刚启动，等 1 秒让 mihomo 就绪再拉规则
+      const timer = setTimeout(() => { void load() }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [engineStatus])
 
   const types = useMemo(() => {
     const set = new Set(rules.map((r) => r.type))
@@ -402,8 +427,8 @@ export function Rules() {
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">规则</h1>
             {!hasRealData && view === 'table' && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-400">
-                演示数据
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary-500/15 text-primary-400">
+                默认模板 · 启动引擎后切换为实时规则
               </span>
             )}
           </div>
@@ -436,15 +461,6 @@ export function Rules() {
           )}
           {view === 'yaml' && (
             <>
-              <button
-                type="button"
-                onClick={resetToDefault}
-                className="btn-secondary text-xs py-1.5 px-3"
-                title="恢复到内置的默认规则模板"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>默认模板</span>
-              </button>
               <button
                 type="button"
                 onClick={loadFromCurrent}

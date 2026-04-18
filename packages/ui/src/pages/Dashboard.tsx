@@ -23,7 +23,7 @@ import { useEngineStore } from '@/stores/engine'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TrafficChart } from '@/components/TrafficChart'
 import { formatSpeed, formatBytes, formatDuration } from '@/lib/format'
-import { getMockTraffic, mihomoGetConnections } from '@/lib/ipc'
+import { mihomoGetConnections } from '@/lib/ipc'
 import { useSubscriptionStore } from '@/stores/subscription'
 
 // ---------------------------------------------------------------------------
@@ -103,37 +103,33 @@ export function Dashboard() {
     void loadSubs()
   }, [loadSubs])
 
-  // 流量轮询：通过 /connections 的 total 差值算速度（避免 /traffic 流式端点问题）
+  // 流量轮询：每秒尝试从 mihomo API 拉数据（不依赖引擎状态判断）
   useEffect(() => {
     trafficIntervalRef.current = setInterval(() => {
-      if (state.status === 'running') {
-        void (async () => {
-          const connResult = await mihomoGetConnections()
+      void (async () => {
+        const connResult = await mihomoGetConnections()
+        if (connResult.success && connResult.data) {
+          try {
+            const data = JSON.parse(connResult.data) as {
+              connections?: unknown[]
+              uploadTotal?: number
+              downloadTotal?: number
+            }
+            const uploadTotal = data.uploadTotal ?? 0
+            const downloadTotal = data.downloadTotal ?? 0
+            const activeConnections = (data.connections as unknown[])?.length ?? 0
 
-          if (connResult.success && connResult.data) {
-            try {
-              const data = JSON.parse(connResult.data) as {
-                connections?: unknown[]
-                uploadTotal?: number
-                downloadTotal?: number
-              }
-              const uploadTotal = data.uploadTotal ?? 0
-              const downloadTotal = data.downloadTotal ?? 0
-              const activeConnections = (data.connections as unknown[])?.length ?? 0
+            const prev = prevTotalsRef.current
+            const uploadSpeed = prev.up > 0 ? Math.max(0, uploadTotal - prev.up) : 0
+            const downloadSpeed = prev.down > 0 ? Math.max(0, downloadTotal - prev.down) : 0
+            prevTotalsRef.current = { up: uploadTotal, down: downloadTotal }
 
-              const prev = prevTotalsRef.current
-              const uploadSpeed = prev.up > 0 ? Math.max(0, uploadTotal - prev.up) : 0
-              const downloadSpeed = prev.down > 0 ? Math.max(0, downloadTotal - prev.down) : 0
-              prevTotalsRef.current = { up: uploadTotal, down: downloadTotal }
-
-              setTraffic({ uploadSpeed, downloadSpeed, uploadTotal, downloadTotal, activeConnections })
-              return
-            } catch { /* ignore */ }
-          }
-
-          setTraffic(getMockTraffic())
-        })()
-      }
+            setTraffic({ uploadSpeed, downloadSpeed, uploadTotal, downloadTotal, activeConnections })
+            return
+          } catch { /* ignore */ }
+        }
+        // API 不响应时保持当前值（不清零，避免闪烁）
+      })()
     }, 1_000)
 
     tickIntervalRef.current = setInterval(() => {
@@ -144,7 +140,7 @@ export function Dashboard() {
       if (trafficIntervalRef.current) clearInterval(trafficIntervalRef.current)
       if (tickIntervalRef.current) clearInterval(tickIntervalRef.current)
     }
-  }, [state.status, setTraffic, tickUptime])
+  }, [setTraffic, tickUptime])
 
   const modeLabels: Record<string, string> = {
     rule: '规则模式',
@@ -163,10 +159,10 @@ export function Dashboard() {
         <StatusBadge status={state.status} size="lg" />
       </div>
 
-      {/* 左右布局：左侧快速导航 + 右侧内容 */}
+      {/* 左右布局：桌面端有左侧导航，移动端直接滚 */}
       <div className="flex-1 overflow-hidden flex">
-        {/* 左侧导航 */}
-        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5">
+        {/* 左侧导航（移动端隐藏） */}
+        <nav className="w-32 flex-shrink-0 border-r border-border py-4 px-2 space-y-0.5 hidden sm:block">
           {[
             { id: 'overview', icon: <LayoutDashboard size={14} />, label: '概览' },
             { id: 'traffic', icon: <BarChart3 size={14} />, label: '实时流量' },

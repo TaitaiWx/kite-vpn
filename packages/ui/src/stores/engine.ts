@@ -77,19 +77,60 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
 
   startEngine: async () => {
     set({ state: { status: 'starting' } })
+
+    // ① 启动前：用最新订阅数据重新生成 config.yaml（确保模板/规则/端口都是最新的）
+    try {
+      const { useSubscriptionStore } = await import('./subscription')
+      await useSubscriptionStore.getState().applyConfig()
+    } catch { /* 没有订阅也不阻塞启动 */ }
+
+    // ② 启动引擎
     const result = await ipcEngineStart()
     if (result.success && result.data) {
       set({ state: result.data })
       get().startWatchdog()
-      // 启动后获取 mihomo 版本
-      setTimeout(async () => {
-        const versionResult = await mihomoGetVersion()
-        if (versionResult.success && versionResult.data) {
+
+      // ③ 等 mihomo API 就绪（最多等 5 秒）再确认状态
+      let apiReady = false
+      for (let i = 0; i < 10; i++) {
+        await new Promise<void>((r) => setTimeout(r, 500))
+        const v = await mihomoGetVersion()
+        if (v.success && v.data) {
           set((prev) => ({
-            state: { ...prev.state, version: versionResult.data }
+            state: { ...prev.state, status: 'running', version: v.data }
           }))
+          apiReady = true
+          break
         }
-      }, 1000)
+      }
+      if (!apiReady) {
+        set({ state: { status: 'error', error: 'mihomo API 未响应（端口可能被占用）' } })
+        return
+      }
+
+      // ④ 桌面端：自动开启系统代理（不弹密码）
+      try {
+        const proxyResult = await ipcEnableProxy()
+        if (proxyResult.success) set({ systemProxy: true })
+      } catch { /* ignore */ }
+
+      // ⑤ 重建托盘菜单（加入代理节点切换子菜单）
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('rebuild_tray_with_proxies')
+      } catch { /* ignore */ }
+
+      // ⑤ Android：自动开启 VPN 服务
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const w = window as Record<string, unknown>
+        const meta = w['__TAURI_INTERNALS__'] as Record<string, unknown> | undefined
+        if (meta?.['platform'] === 'android') {
+          try {
+            const { invoke } = await import('@tauri-apps/api/core')
+            await invoke('start_vpn', { proxyPort: 7890, dnsPort: 1053 })
+          } catch { /* ignore */ }
+        }
+      }
     } else {
       set({ state: { status: 'error', error: result.error ?? '启动失败' } })
     }
@@ -98,6 +139,25 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
   stopEngine: async () => {
     get().stopWatchdog()
     set({ state: { status: 'stopping' } })
+
+    // 先关系统代理（停引擎前关，避免流量指向不存在的端口→断网）
+    try {
+      await ipcDisableProxy()
+      set({ systemProxy: false })
+    } catch { /* ignore */ }
+
+    // Android: 停 VPN 服务
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const w = window as Record<string, unknown>
+      const meta = w['__TAURI_INTERNALS__'] as Record<string, unknown> | undefined
+      if (meta?.['platform'] === 'android') {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          await invoke('stop_vpn')
+        } catch { /* ignore */ }
+      }
+    }
+
     const result = await ipcEngineStop()
     if (result.success && result.data) {
       set({ state: result.data })
@@ -156,13 +216,25 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
 
   startWatchdog: () => {
     get().stopWatchdog()
+    let crashCount = 0
     const timer = setInterval(async () => {
       const prev = get().state
       if (prev.status !== 'running') return
 
       const result = await ipcGetState()
       if (result.success && result.data && result.data.status !== 'running') {
-        set({ state: { status: 'error', error: '引擎进程已退出' } })
+        crashCount++
+        // 自动重启：最多尝试 3 次，避免死循环
+        if (crashCount <= 3) {
+          console.error(`[KITE] 引擎崩溃 #${crashCount}，自动重启…`)
+          set({ state: { status: 'starting' } })
+          const restart = await ipcEngineStart()
+          if (restart.success && restart.data) {
+            set({ state: restart.data })
+            return // 重启成功，继续监控
+          }
+        }
+        set({ state: { status: 'error', error: `引擎进程已退出（已尝试重启 ${crashCount} 次）` } })
         get().stopWatchdog()
       }
     }, 5000)

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { LogEntry } from '@kite-vpn/types'
-import { getMockLogEntry, mihomoGetLogs } from '@/lib/ipc'
+import { mihomoGetLogs } from '@/lib/ipc'
 import { useEngineStore } from '@/stores/engine'
 
 // ---------------------------------------------------------------------------
@@ -269,45 +269,32 @@ export function Logs() {
     setEntries([])
   }, [engineStatus])
 
+  // 日志轮询：不依赖 engineStatus，直接尝试从 API 拉
   useEffect(() => {
-    if (engineStatus === 'running') {
-      const interval = setInterval(() => {
-        void (async () => {
-          const result = await mihomoGetLogs(logIndexRef.current.toString())
-          if (result.success && result.data) {
-            const chunk = result.data as unknown as { lines: string[]; total: number }
-            if (chunk.lines && chunk.lines.length > 0) {
-              logIndexRef.current = chunk.total
-              const newEntries: LogEntry[] = chunk.lines.map((line) => {
-                // mihomo stderr 格式: "time=... level=info msg=..."
-                let type: LogEntry['type'] = 'info'
-                if (line.includes('level=error') || line.includes('ERR')) type = 'error'
-                else if (line.includes('level=warn') || line.includes('WRN')) type = 'warning'
-                else if (line.includes('level=debug') || line.includes('DBG')) type = 'debug'
-                return { type, payload: line, timestamp: new Date().toISOString() }
-              })
-              setEntries((prev) => {
-                const next = [...prev, ...newEntries]
-                return next.length > MAX_LOG_ENTRIES ? next.slice(-MAX_LOG_ENTRIES) : next
-              })
-            }
+    const interval = setInterval(() => {
+      void (async () => {
+        const result = await mihomoGetLogs(logIndexRef.current.toString())
+        if (result.success && result.data) {
+          const chunk = result.data as unknown as { lines: string[]; total: number }
+          if (chunk.lines && chunk.lines.length > 0) {
+            logIndexRef.current = chunk.total
+            const newEntries: LogEntry[] = chunk.lines.map((line) => {
+              let type: LogEntry['type'] = 'info'
+              if (line.includes('level=error') || line.includes('ERR')) type = 'error'
+              else if (line.includes('level=warn') || line.includes('WRN')) type = 'warning'
+              else if (line.includes('level=debug') || line.includes('DBG')) type = 'debug'
+              return { type, payload: line, timestamp: new Date().toISOString() }
+            })
+            setEntries((prev) => {
+              const next = [...prev, ...newEntries]
+              return next.length > MAX_LOG_ENTRIES ? next.slice(-MAX_LOG_ENTRIES) : next
+            })
           }
-        })()
-      }, 1000)
-      return () => clearInterval(interval)
-    } else {
-      const seed: LogEntry[] = Array.from({ length: 15 }, () => getMockLogEntry())
-      setEntries(seed)
-
-      const interval = setInterval(() => {
-        setEntries((prev) => {
-          const next = [...prev, getMockLogEntry()]
-          return next.length > MAX_LOG_ENTRIES ? next.slice(-MAX_LOG_ENTRIES) : next
-        })
-      }, 1200)
-      return () => clearInterval(interval)
-    }
-  }, [engineStatus])
+        }
+      })()
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Auto-scroll to bottom when new entries arrive
   useEffect(() => {

@@ -12,11 +12,11 @@
  * NO `any` types — fully typed with @kite-vpn/types.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Search, Zap, Wifi, WifiOff, ChevronRight, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { ProxyNode, ProxyGroupConfig, ProxyGroupType } from '@kite-vpn/types'
-import { getMockNodes, getMockGroups, getMockSubscriptions, mihomoGetProxies, testProxyDelay, mihomoSelectProxy } from '@/lib/ipc'
+import { mihomoGetProxies, testProxyDelay, testNodeTcpDelay, mihomoSelectProxy } from '@/lib/ipc'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useEngineStore } from '@/stores/engine'
 import { toast } from '@/stores/toast'
@@ -246,17 +246,13 @@ export function Proxies() {
   const [nodeSourceMap, setNodeSourceMap] = useState<Map<string, string>>(new Map())
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions)
-  const hasRealData = useSubscriptionStore((s) => s.hasRealData)
   const engineStatus = useEngineStore((s) => s.state.status)
 
-  const isDemo = !hasRealData && subscriptions.length === 0
 
   // 构建分组数据
   useEffect(() => {
     void (async () => {
-      const realSubs = subscriptions.filter((s) => s.enabled && s.nodes.length > 0)
-      const demoSubs = isDemo ? getMockSubscriptions() : []
-      const enabledSubs = realSubs.length > 0 ? realSubs : demoSubs
+      const enabledSubs = subscriptions.filter((s) => s.enabled && s.nodes.length > 0)
       const allNodes = enabledSubs.flatMap((s) => s.nodes)
       const sourceNodes = allNodes
       const sourceSubs = enabledSubs
@@ -342,7 +338,7 @@ export function Proxies() {
         setActiveGroup((prev) => newGroups.some((g) => g.name === prev) ? prev : (newGroups[0]?.name ?? ''))
       }
     })()
-  }, [subscriptions, engineStatus, viewMode, isDemo])
+  }, [subscriptions, engineStatus, viewMode])
 
   // Resolve the current group object
   const currentGroup = useMemo(
@@ -391,32 +387,50 @@ export function Proxies() {
     [engineStatus],
   )
 
+  // 引擎运行时自动测速一次
+  const autoTestedRef = useRef(false)
+  useEffect(() => {
+    if (engineStatus === 'running' && nodes.length > 0 && !autoTestedRef.current && !testing) {
+      autoTestedRef.current = true
+      void handleTestAll()
+    }
+    if (engineStatus !== 'running') autoTestedRef.current = false
+  }, [engineStatus, nodes.length])
+
   const handleTestAll = useCallback(async () => {
     setTesting(true)
-    toast('开始全部测速…', 'info')
 
-    if (engineStatus === 'running') {
+    // 过滤掉流量信息伪节点
+    const realNodes = nodes.filter((n) => !/^\d+[\s.]*[GMKT]?i?B?\s*\||Traffic|Expire|Reset/i.test(n.name))
+
+    // 引擎运行时用 mihomo API（更准），未运行时用 TCP 直连（粗测延迟）
+    const useApi = engineStatus === 'running'
+    const BATCH_SIZE = 10
+    const updatedMap = new Map<string, { latency: number; alive: boolean }>()
+
+    for (let i = 0; i < realNodes.length; i += BATCH_SIZE) {
+      const batch = realNodes.slice(i, i + BATCH_SIZE)
       const results = await Promise.allSettled(
-        nodes.map((n) => testProxyDelay(n.name))
+        useApi
+          ? batch.map((n) => testProxyDelay(n.name, 'http://cp.cloudflare.com/generate_204', 3000))
+          : batch.map((n) => testNodeTcpDelay(n.server, n.port, 2000))
       )
+      for (let j = 0; j < batch.length; j++) {
+        const n = batch[j]!
+        const r = results[j]!
+        if (r.status === 'fulfilled' && r.value.success && r.value.data != null) {
+          const delay = useApi ? (r.value.data as { delay: number }).delay : (r.value.data as number)
+          updatedMap.set(n.name, { latency: delay, alive: delay > 0 })
+        } else {
+          updatedMap.set(n.name, { latency: 0, alive: false })
+        }
+      }
+      // 每批测完实时刷新 UI
       setNodes((prev) =>
-        prev.map((n, i) => {
-          const r = results[i]
-          if (r && r.status === 'fulfilled' && r.value.success && r.value.data) {
-            return { ...n, latency: r.value.data.delay, alive: r.value.data.delay > 0 }
-          }
-          return n
+        prev.map((n) => {
+          const update = updatedMap.get(n.name)
+          return update ? { ...n, ...update } : n
         }),
-      )
-    } else {
-      // 引擎未运行时 mock
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500))
-      setNodes((prev) =>
-        prev.map((n) => ({
-          ...n,
-          latency: Math.random() > 0.05 ? Math.floor(Math.random() * 500) + 15 : 0,
-          alive: Math.random() > 0.05,
-        })),
       )
     }
 
@@ -433,7 +447,6 @@ export function Proxies() {
             <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">代理</h1>
             <p className="text-[11px] text-gray-400 mt-0.5">
               {nodes.length} 个节点 · {groups.length} 个分组
-              {isDemo && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400">演示数据</span>}
             </p>
           </div>
           {/* 视图切换 */}
@@ -470,7 +483,7 @@ export function Proxies() {
           <button
             type="button"
             onClick={() => { void handleTestAll() }}
-            disabled={testing}
+            disabled={testing || nodes.length === 0}
             className="btn-primary text-xs py-1.5 px-3"
           >
             {testing ? (
