@@ -62,6 +62,22 @@ fn chrono_now() -> String {
 pub fn run() {
     init_local_logging();
 
+    // Ctrl+C / SIGTERM 信号处理：确保退出前关系统代理 + 停引擎
+    // dev 模式 Ctrl+C 时 Tauri 的 RunEvent::Exit 不一定触发，这个是兜底
+    let _ = ctrlc::set_handler(move || {
+        eprintln!("[KITE] Signal received, cleaning up...");
+        let _ = system_proxy::disable();
+        #[cfg(unix)]
+        {
+            let _ = std::process::Command::new("killall")
+                .args(["-TERM", "mihomo-aarch64-apple-darwin"]).output();
+            let _ = std::process::Command::new("killall")
+                .args(["-TERM", "mihomo-x86_64-apple-darwin"]).output();
+        }
+        eprintln!("[KITE] Cleanup done, exiting.");
+        std::process::exit(0);
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
