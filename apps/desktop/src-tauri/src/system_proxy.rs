@@ -1,5 +1,14 @@
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Windows: CREATE_NO_WINDOW = 0x08000000，让子进程不弹控制台窗口
+#[cfg(target_os = "windows")]
+fn no_window(cmd: &mut Command) -> &mut Command {
+    cmd.creation_flags(0x08000000)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProxyConfig {
     pub host: String,
@@ -127,20 +136,20 @@ fn disable_windows() -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn is_enabled_windows() -> Result<bool, String> {
-    let output = Command::new("reg")
-        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", "ProxyEnable"])
-        .output()
-        .map_err(|e| format!("查询注册表失败: {}", e))?;
+    let mut c = Command::new("reg");
+    c.args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings", "/v", "ProxyEnable"]);
+    no_window(&mut c);
+    let output = c.output().map_err(|e| format!("查询注册表失败: {}", e))?;
     Ok(String::from_utf8_lossy(&output.stdout).contains("0x1"))
 }
 
 #[cfg(target_os = "windows")]
 fn run_reg(name: &str, reg_type: &str, value: &str) -> Result<(), String> {
-    let output = Command::new("reg")
-        .args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-               "/v", name, "/t", reg_type, "/d", value, "/f"])
-        .output()
-        .map_err(|e| format!("设置注册表失败: {}", e))?;
+    let mut c = Command::new("reg");
+    c.args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+           "/v", name, "/t", reg_type, "/d", value, "/f"]);
+    no_window(&mut c);
+    let output = c.output().map_err(|e| format!("设置注册表失败: {}", e))?;
     if !output.status.success() {
         return Err(format!("注册表写入失败: {}", String::from_utf8_lossy(&output.stderr)));
     }

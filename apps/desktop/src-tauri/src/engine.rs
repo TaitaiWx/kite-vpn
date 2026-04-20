@@ -4,6 +4,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Windows: CREATE_NO_WINDOW flag — 启动子进程时不弹控制台黑窗口
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const MAX_LOG_LINES: usize = 500;
 
 pub struct EngineProcess {
@@ -39,11 +46,17 @@ impl EngineProcess {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
 
-        let mut child = Command::new(mihomo_path)
-            .arg("-d")
+        let mut cmd = Command::new(mihomo_path);
+        cmd.arg("-d")
             .arg(config_dir)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        // Windows: 隐藏控制台黑窗口
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("启动引擎失败: {}", e))?;
 

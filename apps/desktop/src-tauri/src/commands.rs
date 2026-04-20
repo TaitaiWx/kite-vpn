@@ -1,7 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{AppHandle, Manager};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// 跨平台 Command 工厂：Windows 自动加 CREATE_NO_WINDOW 隐藏控制台黑窗
+#[allow(dead_code)]
+fn cmd(program: &str) -> Command {
+    let mut c = Command::new(program);
+    #[cfg(target_os = "windows")]
+    c.creation_flags(0x08000000);
+    c
+}
 use crate::engine::EngineState as EngineAppState;
 use crate::system_proxy;
 
@@ -1074,17 +1087,16 @@ pub async fn set_autostart(enabled: bool, _app: AppHandle) -> IpcResult<bool> {
 
     #[cfg(target_os = "windows")]
     {
+        let mut c = std::process::Command::new("reg");
         if enabled {
-            let _ = std::process::Command::new("reg")
-                .args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                       "/v", "Kite", "/t", "REG_SZ", "/d", &exe_path, "/f"])
-                .output();
+            c.args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v", "Kite", "/t", "REG_SZ", "/d", &exe_path, "/f"]);
         } else {
-            let _ = std::process::Command::new("reg")
-                .args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                       "/v", "Kite", "/f"])
-                .output();
+            c.args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v", "Kite", "/f"]);
         }
+        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let _ = c.output();
         return IpcResult::ok(enabled);
     }
 
