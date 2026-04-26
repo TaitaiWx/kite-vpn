@@ -251,4 +251,46 @@ export interface ProxyNode {
   region?: string
   /** Emoji flag for the region (e.g. "🇺🇸", "🇯🇵") */
   regionEmoji?: string
+  /** Time-to-first-byte from a real-speed test (ms) */
+  ttfbMs?: number
+  /** Real-speed test throughput (KB/s) — Heavy/Real mode only */
+  throughputKbps?: number
+}
+
+// ---------------------------------------------------------------------------
+// Real-speed test (candidate C — Kite differentiator)
+// ---------------------------------------------------------------------------
+
+/**
+ * Speed test mode — picks the target URL and measurement strategy.
+ *
+ * - `quick`: HEAD a real site (~2KB) — fastest, default for batch testing.
+ * - `real`:  GET a small asset (~32KB) — measures real download latency.
+ * - `heavy`: GET a 1MB resource, abort after 1s — measures bandwidth.
+ *
+ * Backend (Rust) must agree on the lowercase serialization.
+ */
+export type SpeedMode = 'quick' | 'real' | 'heavy'
+
+/**
+ * Result envelope from the `test_node_real_speed` IPC.
+ *
+ * On failure `error` is set and the timing fields will be 0. On success
+ * `error` is null/undefined and `httpStatus` is the HTTP response code.
+ */
+export interface RealSpeedResult {
+  /** The proxy node name we tested */
+  name: string
+  /** Time-to-first-byte (milliseconds) */
+  ttfbMs: number
+  /** Total time from request start to body-complete or abort (milliseconds) */
+  totalMs: number
+  /** Bytes received during the body read (0 for `quick` HEAD requests) */
+  bytesReceived: number
+  /** Computed throughput (KB/s) — only meaningful when `bytesReceived >= 1024` */
+  throughputKbps: number
+  /** HTTP response status (e.g. 200) — null when the request never completed */
+  httpStatus: number | null
+  /** Human-readable error message, set on failure */
+  error: string | null
 }

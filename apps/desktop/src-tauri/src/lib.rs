@@ -138,6 +138,7 @@ pub fn run() {
             commands::mihomo_select_proxy,
             commands::mihomo_close_connections,
             commands::test_proxy_delay,
+            commands::test_node_real_speed,
             commands::set_autostart,
             commands::sync_tray_state,
             commands::apply_mixin_and_reload,

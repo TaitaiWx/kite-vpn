@@ -1,4 +1,15 @@
 #![allow(deprecated)]
+// 这个模块用 objc2 给 tray 菜单的延迟徽章上色（绿/黄/红/灰）。
+// 当前不用 —— `NSStatusBar.statusItems` 是 macOS 私有 API，会触发
+// fatal Objective-C exception。emoji 方案（tray.rs 里那种）更安全。
+//
+// 留着代码是为了：
+// 1. 未来如果 Apple 公开 statusItems API 可以恢复
+// 2. 同样的 NSAttributedString 模式将来 iOS 工作可能复用
+//
+// 全文件 dead code 警告抑制 —— 一旦哪天 colorize_delay_badges 被重新
+// 接到调用方，移除这个 attribute 即可。
+#![allow(dead_code)]
 
 #[cfg(target_os = "macos")]
 use objc2::rc::Retained;

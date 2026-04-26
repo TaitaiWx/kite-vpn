@@ -14,6 +14,8 @@ import type {
   SubscriptionUserInfo,
   MergeStrategy,
   RoutingRule,
+  SpeedMode,
+  RealSpeedResult,
 } from '@kite-vpn/types'
 
 // ---------------------------------------------------------------------------
@@ -176,6 +178,48 @@ export async function testProxyDelay(name: string, testUrl?: string, timeout?: n
 /** 直接 TCP 连接测速（不依赖 mihomo，引擎未运行也能用） */
 export async function testNodeTcpDelay(server: string, port: number, timeoutMs?: number): Promise<IpcResult<number>> {
   return invoke<number>('test_node_tcp_delay', { server, port, timeoutMs })
+}
+
+/**
+ * 真实测速：通过 mihomo 代理向真实站点（YouTube / Cloudflare 等）发请求，
+ * 返回 TTFB + 实际吞吐。Quick / Real / Heavy 三档。
+ *
+ * 调用前提：mihomo 必须在运行 + 想测的节点已经被切换到主 group
+ * （否则走 DIRECT，测出来的不是节点速度而是本机带宽）。
+ *
+ * Rust 端字段是 snake_case；这里我们做一次映射，让 UI 用 camelCase。
+ */
+export async function testNodeRealSpeed(
+  name: string,
+  mode?: SpeedMode,
+  timeoutMs?: number,
+): Promise<IpcResult<RealSpeedResult>> {
+  interface RustResult {
+    name: string
+    ttfb_ms: number
+    total_ms: number
+    bytes_received: number
+    throughput_kbps: number
+    http_status: number | null
+    error: string | null
+  }
+  const result = await invoke<RustResult>('test_node_real_speed', { name, mode, timeoutMs })
+  if (result.success && result.data) {
+    const r = result.data
+    return {
+      success: true,
+      data: {
+        name: r.name,
+        ttfbMs: r.ttfb_ms,
+        totalMs: r.total_ms,
+        bytesReceived: r.bytes_received,
+        throughputKbps: r.throughput_kbps,
+        httpStatus: r.http_status,
+        error: r.error,
+      },
+    }
+  }
+  return result as unknown as IpcResult<RealSpeedResult>
 }
 
 // ---------------------------------------------------------------------------

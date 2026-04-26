@@ -28,6 +28,10 @@ export type {
 
   // Main proxy node
   ProxyNode,
+
+  // Real-speed test (candidate C)
+  SpeedMode,
+  RealSpeedResult,
 } from './proxy.js'
 
 export type {

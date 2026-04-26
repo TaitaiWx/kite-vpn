@@ -13,15 +13,16 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Search, Zap, Wifi, WifiOff, ChevronRight, Loader2 } from 'lucide-react'
+import { Search, Zap, Wifi, WifiOff, ChevronRight, Loader2, Gauge, Activity } from 'lucide-react'
 import { clsx } from 'clsx'
-import type { ProxyNode, ProxyGroupConfig, ProxyGroupType } from '@kite-vpn/types'
-import { mihomoGetProxies, testProxyDelay, testNodeTcpDelay, mihomoSelectProxy } from '@/lib/ipc'
+import type { ProxyNode, ProxyGroupConfig, ProxyGroupType, SpeedMode } from '@kite-vpn/types'
+import { mihomoGetProxies, mihomoSelectProxy } from '@/lib/ipc'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useEngineStore } from '@/stores/engine'
 import { toast } from '@/stores/toast'
 import { formatLatency, getLatencyLevel, getLatencyDotClass } from '@/lib/format'
 import { Tooltip } from '@/components/Tooltip'
+import { useSpeedTest, type NodeMeasurement } from '@/hooks/useSpeedTest'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,6 +154,36 @@ function GroupListItem({ group, isActive, selectedProxy, nodeCount, onSelect }: 
   )
 }
 
+interface SpeedModeButtonProps {
+  mode: SpeedMode
+  current: SpeedMode
+  onClick: () => void
+  disabled: boolean
+  icon: typeof Zap
+  label: string
+}
+
+function SpeedModeButton({ mode, current, onClick, disabled, icon: Icon, label }: SpeedModeButtonProps) {
+  const isActive = current === mode
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(
+        'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all',
+        isActive
+          ? 'bg-surface-0 text-gray-800 dark:text-gray-100 shadow-sm'
+          : 'text-gray-400 hover:text-gray-200',
+        disabled && !isActive && 'opacity-40 cursor-not-allowed hover:text-gray-400',
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+    </button>
+  )
+}
+
 interface NodeCardProps {
   node: ProxyNode
   isSelected: boolean
@@ -223,9 +254,33 @@ function NodeCard({ node, isSelected, onSelect, source }: NodeCardProps) {
           <span className={clsx('inline-block h-2 w-2 rounded-full', dotClass)} />
         </span>
       </div>
+
+      {/* Real-speed metrics — only shown when present (Real / Heavy mode set them) */}
+      {(node.ttfbMs != null || node.throughputKbps != null) && (
+        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+          {node.ttfbMs != null && node.ttfbMs > 0 && (
+            <span className="flex items-center gap-0.5" title="Time-to-first-byte">
+              <Activity className="h-2.5 w-2.5" />
+              {node.ttfbMs}ms
+            </span>
+          )}
+          {node.throughputKbps != null && node.throughputKbps > 0 && (
+            <span className="flex items-center gap-0.5" title="实测吞吐量">
+              <Gauge className="h-2.5 w-2.5" />
+              {formatThroughput(node.throughputKbps)}
+            </span>
+          )}
+        </div>
+      )}
     </button>
     </Tooltip>
   )
+}
+
+/** Format throughput in human-friendly units. Input is KB/s. */
+function formatThroughput(kbps: number): string {
+  if (kbps >= 1024) return `${(kbps / 1024).toFixed(1)} MB/s`
+  return `${kbps} KB/s`
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +295,7 @@ export function Proxies() {
   const [activeGroup, setActiveGroup] = useState<string>('')
   const [selected, setSelected] = useState<SelectedState>({})
   const [searchQuery, setSearchQuery] = useState('')
-  const [testing, setTesting] = useState(false)
+  const [speedMode, setSpeedMode] = useState<SpeedMode>('quick')
   const [viewMode, setViewMode] = useState<ViewMode>('merged')
   const [collapsedSubs, setCollapsedSubs] = useState<Set<string>>(new Set())
   const [nodeSourceMap, setNodeSourceMap] = useState<Map<string, string>>(new Map())
@@ -387,56 +442,62 @@ export function Proxies() {
     [engineStatus],
   )
 
-  // 引擎运行时自动测速一次
+  // ── 测速 ─────────────────────────────────────────────────────────────
+  // 把测速逻辑放进 useSpeedTest hook：分 quick / real / heavy 三档，real 和
+  // heavy 模式会逐个切换节点（因为 mihomo 只通过当前选中节点路由），用完
+  // 自动恢复原选中。
+
+  // 当前 group 包含的节点名集合（用于把"全部测速"限制在 active group 内）
+  const groupNodeNames = useMemo(
+    () => new Set(currentGroup?.proxies ?? []),
+    [currentGroup],
+  )
+
+  // 把单批 measurements 应用到 nodes state 上
+  const applyBatchUpdate = useCallback((updates: NodeMeasurement[]) => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        const u = updates.find((x) => x.name === n.name)
+        if (!u) return n
+        return {
+          ...n,
+          latency: u.latency,
+          alive: u.alive,
+          ttfbMs: u.ttfbMs ?? n.ttfbMs,
+          throughputKbps: u.throughputKbps ?? n.throughputKbps,
+        }
+      }),
+    )
+  }, [])
+
+  const { testing, progress, runTest } = useSpeedTest({
+    nodes,
+    engineRunning: engineStatus === 'running',
+    groupName: activeGroup,
+    currentlySelected: selected[activeGroup],
+    groupNodeNames,
+    onBatchUpdate: applyBatchUpdate,
+  })
+
+  const handleTestAll = useCallback(async () => {
+    // 引擎未运行时强制 quick（real/heavy 需要 mihomo 路由）
+    const mode: SpeedMode = engineStatus === 'running' ? speedMode : 'quick'
+    if (engineStatus !== 'running' && speedMode !== 'quick') {
+      toast('Real / Heavy 模式需要先启动引擎，回退到 Quick 模式', 'warning')
+    }
+    await runTest(mode)
+    toast('测速完成', 'success')
+  }, [runTest, speedMode, engineStatus])
+
+  // 引擎运行时自动测速一次（始终用 quick，避免开机就 sequential 跑半天）
   const autoTestedRef = useRef(false)
   useEffect(() => {
     if (engineStatus === 'running' && nodes.length > 0 && !autoTestedRef.current && !testing) {
       autoTestedRef.current = true
-      void handleTestAll()
+      void runTest('quick')
     }
     if (engineStatus !== 'running') autoTestedRef.current = false
-  }, [engineStatus, nodes.length])
-
-  const handleTestAll = useCallback(async () => {
-    setTesting(true)
-
-    // 过滤掉流量信息伪节点
-    const realNodes = nodes.filter((n) => !/^\d+[\s.]*[GMKT]?i?B?\s*\||Traffic|Expire|Reset/i.test(n.name))
-
-    // 引擎运行时用 mihomo API（更准），未运行时用 TCP 直连（粗测延迟）
-    const useApi = engineStatus === 'running'
-    const BATCH_SIZE = 10
-    const updatedMap = new Map<string, { latency: number; alive: boolean }>()
-
-    for (let i = 0; i < realNodes.length; i += BATCH_SIZE) {
-      const batch = realNodes.slice(i, i + BATCH_SIZE)
-      const results = await Promise.allSettled(
-        useApi
-          ? batch.map((n) => testProxyDelay(n.name, 'http://cp.cloudflare.com/generate_204', 3000))
-          : batch.map((n) => testNodeTcpDelay(n.server, n.port, 2000))
-      )
-      for (let j = 0; j < batch.length; j++) {
-        const n = batch[j]!
-        const r = results[j]!
-        if (r.status === 'fulfilled' && r.value.success && r.value.data != null) {
-          const delay = useApi ? (r.value.data as { delay: number }).delay : (r.value.data as number)
-          updatedMap.set(n.name, { latency: delay, alive: delay > 0 })
-        } else {
-          updatedMap.set(n.name, { latency: 0, alive: false })
-        }
-      }
-      // 每批测完实时刷新 UI
-      setNodes((prev) =>
-        prev.map((n) => {
-          const update = updatedMap.get(n.name)
-          return update ? { ...n, ...update } : n
-        }),
-      )
-    }
-
-    toast('测速完成', 'success')
-    setTesting(false)
-  }, [nodes, engineStatus])
+  }, [engineStatus, nodes.length, testing, runTest])
 
   return (
     <div className="h-full flex flex-col animate-fade-in">
@@ -479,6 +540,16 @@ export function Proxies() {
             />
           </div>
 
+          {/* Speed test mode selector */}
+          <div
+            className="flex items-center bg-surface-2 rounded-lg p-[2px]"
+            title="Quick: mihomo 延迟 (~1s/批)  ·  Real: TTFB 真实测速 (~1s/节点)  ·  Heavy: 带宽测速 (~2s/节点)"
+          >
+            <SpeedModeButton mode="quick" current={speedMode} onClick={() => setSpeedMode('quick')} disabled={testing} icon={Zap} label="Quick" />
+            <SpeedModeButton mode="real" current={speedMode} onClick={() => setSpeedMode('real')} disabled={testing || engineStatus !== 'running'} icon={Activity} label="Real" />
+            <SpeedModeButton mode="heavy" current={speedMode} onClick={() => setSpeedMode('heavy')} disabled={testing || engineStatus !== 'running'} icon={Gauge} label="Heavy" />
+          </div>
+
           {/* Test All button */}
           <button
             type="button"
@@ -489,12 +560,16 @@ export function Proxies() {
             {testing ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>测速中…</span>
+                <span>
+                  {speedMode === 'quick'
+                    ? '测速中…'
+                    : `测速中 ${Math.round(progress * 100)}%`}
+                </span>
               </>
             ) : (
               <>
                 <Zap className="h-3.5 w-3.5" />
-                <span>全部测速</span>
+                <span>{speedMode === 'quick' ? '全部测速' : `${speedMode === 'real' ? 'Real' : 'Heavy'} 测速`}</span>
               </>
             )}
           </button>
