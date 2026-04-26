@@ -189,6 +189,8 @@ export interface AppConfig {
   engineConfig: EngineConfig;
   /** Mixin: user-defined YAML overlay applied on top of the generated config. */
   mixin?: MixinConfig;
+  /** Health check: 自动重连 + 断线告警 (defaults applied if absent). */
+  healthCheck?: HealthCheckConfig;
 }
 
 /**
@@ -202,4 +204,31 @@ export interface MixinConfig {
   enabled: boolean;
   /** Raw YAML content. */
   content: string;
+}
+
+/**
+ * Health check / auto-reconnect / disconnect alert configuration.
+ *
+ * Periodically tests the currently-active proxy node. When it fails
+ * `failuresBeforeAlert` times in a row, sends a native notification.
+ * When it fails `failuresBeforeSwitch` times, automatically switches
+ * to the lowest-latency healthy alternative in the same group.
+ */
+export interface HealthCheckConfig {
+  /** Master switch — if false, health monitoring is completely disabled. */
+  enabled: boolean;
+  /** Send a native OS notification when the active node goes down. */
+  alertOnDisconnect: boolean;
+  /** Auto-switch to a healthy backup node after repeated failures. */
+  autoReconnect: boolean;
+  /** How often to test the active node (milliseconds). Range: 5_000–300_000. */
+  intervalMs: number;
+  /** Single delay test timeout (ms). Range: 1_000–10_000. */
+  timeoutMs: number;
+  /** Failure count before sending an alert. Range: 1–10. */
+  failuresBeforeAlert: number;
+  /** Failure count before auto-switching (must be >= failuresBeforeAlert). */
+  failuresBeforeSwitch: number;
+  /** A delay >= this is treated as failed even if mihomo returns success. */
+  unhealthyLatencyMs: number;
 }

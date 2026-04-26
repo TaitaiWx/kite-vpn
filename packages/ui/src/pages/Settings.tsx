@@ -25,7 +25,9 @@ import {
   ExternalLink,
   RefreshCw,
   Loader2,
+  Activity,
 } from 'lucide-react'
+import { DEFAULT_HEALTH_CONFIG } from '@/stores/health'
 import { clsx } from 'clsx'
 import type { AppConfig, ProxyMode, LogLevel } from '@kite-vpn/types'
 import { loadAppConfig, saveAppConfig } from '@/lib/ipc'
@@ -155,6 +157,29 @@ export function Settings() {
         if (!prev) return prev
         const current = prev.mixin ?? { enabled: false, content: '' }
         return { ...prev, mixin: { ...current, [key]: value } }
+      })
+      setSaved(false)
+    },
+    [],
+  )
+
+  const updateHealthCheck = useCallback(
+    <K extends keyof NonNullable<AppConfig['healthCheck']>>(
+      key: K,
+      value: NonNullable<AppConfig['healthCheck']>[K],
+    ) => {
+      setConfig((prev) => {
+        if (!prev) return prev
+        const current = prev.healthCheck ?? DEFAULT_HEALTH_CONFIG
+        const next = { ...current, [key]: value }
+        // Apply to live store immediately so changes take effect without reload
+        void (async () => {
+          try {
+            const { useHealthStore } = await import('@/stores/health')
+            useHealthStore.getState().setConfig(next)
+          } catch { /* ignore */ }
+        })()
+        return { ...prev, healthCheck: next }
       })
       setSaved(false)
     },
@@ -291,6 +316,7 @@ export function Settings() {
             { id: 'dns', icon: <Globe size={14} />, label: 'DNS' },
             { id: 'tun', icon: <Shield size={14} />, label: 'TUN' },
             { id: 'mixin', icon: <Server size={14} />, label: 'Mixin' },
+            { id: 'health', icon: <Activity size={14} />, label: '健康检查' },
             { id: 'about', icon: <Info size={14} />, label: '关于' },
           ].map((item) => (
             <a
@@ -673,6 +699,77 @@ export function Settings() {
               <span>去规则页编辑</span>
             </button>
           </SettingsRow>
+        </SettingsSection></div>
+
+        {/* ── Health Check (自动重连 + 断线告警) ─────────────────── */}
+        <div id="health"><SettingsSection
+          icon={<Activity size={16} />}
+          title="健康检查"
+          description="自动重连 + 节点断线告警"
+        >
+          {(() => {
+            const hc = config.healthCheck ?? DEFAULT_HEALTH_CONFIG
+            return (
+              <>
+                <SettingsRow
+                  label="启用健康检查"
+                  description="周期性测速当前活动节点，失败时告警 / 自动切换"
+                  help="关掉后下面所有相关功能都不生效。即使你的订阅本来就有 url-test group 在做被动重连，这个开关控制的是 Kite 主动测速 + 通知。"
+                >
+                  <ToggleSwitch
+                    enabled={hc.enabled}
+                    onChange={(v) => updateHealthCheck('enabled', v)}
+                    label="启用健康检查"
+                  />
+                </SettingsRow>
+
+                <SettingsRow
+                  label="断线时通知"
+                  description="节点连续失败时弹系统通知"
+                  help={`当活动节点连续 ${hc.failuresBeforeAlert} 次测速失败（或延迟 > ${hc.unhealthyLatencyMs}ms），发送一次系统通知。同一节点 60 秒内不会重复通知。`}
+                >
+                  <ToggleSwitch
+                    enabled={hc.alertOnDisconnect}
+                    onChange={(v) => updateHealthCheck('alertOnDisconnect', v)}
+                    disabled={!hc.enabled}
+                    label="断线时通知"
+                  />
+                </SettingsRow>
+
+                <SettingsRow
+                  label="自动切换备选节点"
+                  description="节点连续失败超过阈值时切换"
+                  help={`节点连续失败 ${hc.failuresBeforeSwitch} 次后，自动在同一 Selector group 内切换到延迟最低的健康节点。url-test 类型的 group 不受影响（它们自己会自动选）。`}
+                >
+                  <ToggleSwitch
+                    enabled={hc.autoReconnect}
+                    onChange={(v) => updateHealthCheck('autoReconnect', v)}
+                    disabled={!hc.enabled}
+                    label="自动切换备选节点"
+                  />
+                </SettingsRow>
+
+                <SettingsRow
+                  label="检查间隔"
+                  description={`每 ${Math.round(hc.intervalMs / 1000)} 秒测一次活动节点`}
+                  help="频率越高发现故障越快，但对节点的连接负担也大。建议 30 秒，敏感场景可降到 15 秒。"
+                >
+                  <Select<string>
+                    value={String(hc.intervalMs)}
+                    options={[
+                      { value: '15000', label: '15 秒' },
+                      { value: '30000', label: '30 秒（推荐）' },
+                      { value: '60000', label: '1 分钟' },
+                      { value: '120000', label: '2 分钟' },
+                    ]}
+                    onChange={(v) => updateHealthCheck('intervalMs', Number(v))}
+                    disabled={!hc.enabled}
+                    className="w-36"
+                  />
+                </SettingsRow>
+              </>
+            )
+          })()}
         </SettingsSection></div>
 
         {/* ── About ───────────────────────────────────────────────── */}

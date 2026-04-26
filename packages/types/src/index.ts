@@ -67,6 +67,8 @@ export type {
 
   // Top-level app configuration
   AppConfig,
+  MixinConfig,
+  HealthCheckConfig,
 } from './config.js'
 
 export type {

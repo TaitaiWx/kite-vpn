@@ -120,6 +120,14 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
         await invoke('rebuild_tray_with_proxies')
       } catch { /* ignore */ }
 
+      // ⑤.5 启动节点健康监控（自动重连 + 断线告警）
+      // 只在 mihomo API 真正就绪后启动，避免一上来就把刚启动的引擎判为
+      // unhealthy 误触发切换
+      try {
+        const { useHealthStore } = await import('./health')
+        useHealthStore.getState().start()
+      } catch { /* ignore */ }
+
       // ⑤ Android：自动开启 VPN 服务
       if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
         const w = window as Record<string, unknown>
@@ -139,6 +147,12 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
   stopEngine: async () => {
     get().stopWatchdog()
     set({ state: { status: 'stopping' } })
+
+    // 停掉节点健康监控（避免在 stop 过程中触发误切换）
+    try {
+      const { useHealthStore } = await import('./health')
+      useHealthStore.getState().reset()
+    } catch { /* ignore */ }
 
     // 先关系统代理（停引擎前关，避免流量指向不存在的端口→断网）
     try {
@@ -187,6 +201,12 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
           set((prev) => ({ state: { ...prev.state, version: v.data } }))
         }
         get().startWatchdog()
+        // App 启动时如果发现引擎已经在跑（dev 重编译 / 上次没退干净），
+        // 也要把健康监控挂上
+        try {
+          const { useHealthStore } = await import('./health')
+          useHealthStore.getState().start()
+        } catch { /* ignore */ }
       }
     }
   },

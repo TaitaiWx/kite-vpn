@@ -179,6 +179,13 @@ export default function App() {
             await getCurrentWindow().hide()
           } catch { /* ignore */ }
         }
+        // 同步健康检查配置（自动重连 + 断线告警）—— 用户设置覆盖默认值
+        if (cfg.healthCheck) {
+          try {
+            const { useHealthStore } = await import('@/stores/health')
+            useHealthStore.getState().setConfig(cfg.healthCheck)
+          } catch { /* ignore */ }
+        }
         if (cfg.checkUpdateOnStart) {
           // 静默后台更新：启动几秒后检测 → 命中则后台下载并安装（不 relaunch）。
           // 用户当前会话继续跑旧二进制；下次启动操作系统加载新二进制，自动生效。
