@@ -1,7 +1,0 @@
-target/
-k8s/
-README.md
-*.md
-.env
-.env.*
-tests/

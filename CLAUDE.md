@@ -127,8 +127,8 @@ Two independent signatures on different things:
 
 Public ed25519 key fetched once via `GET /api/updates/pubkey`. Client-side verification of `X-Kite-Signature` is Phase 6 work; v0.2 just exposes the header.
 
-### Backend deployment is k8s, NOT shell / docker-compose
-The backend (`apps/backend/`) is deployed via `kubectl apply -k apps/backend/k8s/`. Manifests cover Namespace, Deployment, Service (HTTP + UDP NodePort for Nebula), Ingress (nginx-ingress + cert-manager + Let's Encrypt), PVC, ConfigMap (nebula.yaml), and template Secret. The Dockerfile multi-stage builds the binary + bundles the official Nebula release. CI workflow `.github/workflows/backend-image.yml` pushes `ghcr.io/taitaiwx/kite-backend:latest` + per-tag/sha images for amd64 + arm64.
+### Backend lives in a SEPARATE repo
+As of 2026-05, the backend (axum + Nebula lighthouse) was extracted from `apps/backend/` into its own top-level directory `../kite-backend/` (sibling to `kite-vpn/`). They communicate over HTTPS only — desktop clients call backend via `account.serverUrl` configured at runtime. The backend ships as a Docker image at `ghcr.io/taitaiwx/kite-backend:latest`. Deployment manifests, migrations, integration tests, all live in `../kite-backend/`. Local dev: `cd ../kite-backend && cargo run`. When updating cross-cutting concerns (e.g. the backup API contract), the change spans both repos — update the wire types in both `kite-vpn/packages/ui/src/lib/ipc.ts` and `kite-backend/src/<module>.rs`.
 
 ## Testing
 
