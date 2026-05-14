@@ -159,6 +159,7 @@ pub fn run() {
             commands::mesh_join_network,
             commands::mesh_revoke_peer,
             commands::mesh_get_logs,
+            commands::mesh_apply_bridges,
             // Account (Phase 5 — Backend 客户端)
             commands::account_set_server,
             commands::account_get_state,

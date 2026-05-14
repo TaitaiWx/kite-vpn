@@ -9,12 +9,13 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Network as NetIcon, Plus, Trash2, Workflow, Loader2 } from 'lucide-react'
+import { Network as NetIcon, Plus, Trash2, Workflow, Loader2, ShieldCheck } from 'lucide-react'
 import { useAccountStore } from '@/stores/account'
 import { toast } from '@/stores/toast'
 import { Input } from '@/components/Input'
 import { Tooltip } from '@/components/Tooltip'
 import { SettingsSection, SettingsRow, TextInput } from '@/pages/settings-shared'
+import { meshApplyBridges } from '@/lib/ipc'
 
 const DIRECTIONS = [
   { value: 'in', label: '入站 (对方可访问本 peer)' },
@@ -162,6 +163,29 @@ export function BridgesSection() {
           >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
             生成 redeem URL
+          </button>
+        </Tooltip>
+      </SettingsRow>
+
+      {/* ── 应用到本机 firewall ───────────────────────────────────── */}
+      <SettingsRow
+        label="应用到本机 Nebula 防火墙"
+        description="把 active bridges 写到 config.yaml firewall 规则里"
+        help="客户端会用每个 bridge 的 remote_ca_fingerprint 做 ca_sha 限定，自动放行对方 mesh CA 签发的证书过来的流量。不会自动重启 Nebula —— 用 'Mesh → 重启 Mesh' 应用。"
+      >
+        <Tooltip text="不会自动重启 nebula。规则落到 ~/Library/Application Support/com.kitevpn.desktop/mesh/config.yaml 和 bridges.json。">
+          <button
+            type="button"
+            onClick={async () => {
+              const r = await meshApplyBridges()
+              if (r.success) toast(`已应用 ${r.data ?? 0} 条 bridge 到 firewall`, 'success')
+              else toast(r.error ?? '应用失败', 'error')
+            }}
+            disabled={loading || bridges.length === 0}
+            className="btn-secondary text-xs py-1.5 px-3 inline-flex items-center gap-1"
+          >
+            <ShieldCheck size={12} />
+            应用 firewall 规则
           </button>
         </Tooltip>
       </SettingsRow>

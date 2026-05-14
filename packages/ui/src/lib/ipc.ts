@@ -358,6 +358,11 @@ export async function meshRevokePeer(peerId: string): Promise<IpcResult<void>> {
   return invoke<void>('mesh_revoke_peer', { peerId })
 }
 
+/** 把 backend 的 bridges 拉下来，应用到本机 Nebula firewall。返回应用的 bridge 条数。 */
+export async function meshApplyBridges(): Promise<IpcResult<number>> {
+  return invoke<number>('mesh_apply_bridges', {})
+}
+
 // ---------------------------------------------------------------------------
 // Account (Phase 5 — Kite Backend 客户端)
 // ---------------------------------------------------------------------------

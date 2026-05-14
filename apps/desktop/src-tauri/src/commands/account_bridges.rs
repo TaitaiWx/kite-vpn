@@ -279,6 +279,44 @@ pub async fn account_revoke_bridge(app: AppHandle, id: String) -> IpcResult<()> 
     IpcResult::ok(())
 }
 
+// ─── 内部 API：给 mesh.rs::mesh_apply_bridges 用 ────────────────────────────
+
+pub(super) async fn fetch_active_bridges_for_mesh(app: &AppHandle) -> Result<Vec<BridgeRow>, String> {
+    let account = load_account(app);
+    if account.session_cookie.is_empty() {
+        return Err("尚未登录 backend".to_string());
+    }
+    let client = http_client()?;
+    let url = format!("{}/api/bridges", account.server_url);
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::COOKIE, &account.session_cookie)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("后端拒绝: HTTP {}", resp.status().as_u16()));
+    }
+    let rows: Vec<ServerBridgeRow> = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {}", e))?;
+    Ok(rows
+        .into_iter()
+        .map(|r| BridgeRow {
+            id: r.id,
+            local_peer_id: r.local_peer_id,
+            remote_peer_id: r.remote_peer_id,
+            direction: r.direction,
+            status: r.status,
+            remote_backend_url: r.remote_backend_url,
+            remote_ca_fingerprint: r.remote_ca_fingerprint,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

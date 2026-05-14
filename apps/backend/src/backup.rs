@@ -37,6 +37,8 @@ use crate::{
 const ALLOWED_KINDS: &[&str] = &["ca-key", "subscriptions", "settings"];
 const MAX_CIPHERTEXT_BYTES: usize = 1024 * 1024; // 1 MB
 const KDF_SALT_BYTES: usize = 16;
+/// 每种 backup 保留最近 N 个版本（够回滚误改 / 误删；旧的自动 GC）
+const KEEP_VERSIONS: i64 = 10;
 
 // ─── 上传 ────────────────────────────────────────────────────────────────
 
@@ -97,7 +99,7 @@ pub async fn upload_backup(
     let id = Uuid::new_v4().to_string();
     let bytes = ciphertext.len() as i64;
 
-    // Upsert：每个 (user_id, kind) 只保留最新一份
+    // 1. Upsert backups (当前快照)
     sqlx::query(
         r#"
         INSERT INTO backups (id, user_id, kind, ciphertext, kdf_salt, kdf_algorithm, version, created_at, updated_at)
@@ -122,11 +124,165 @@ pub async fn upload_backup(
     .execute(&state.db)
     .await?;
 
+    // 2. 追加到 backup_versions（历史快照）
+    let version_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        INSERT INTO backup_versions (id, user_id, kind, ciphertext, kdf_salt, kdf_algorithm, version, bytes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&version_id)
+    .bind(&user.user_id)
+    .bind(&kind)
+    .bind(&ciphertext)
+    .bind(&salt)
+    .bind(&payload.kdf_algorithm)
+    .bind(payload.version)
+    .bind(bytes)
+    .bind(now)
+    .execute(&state.db)
+    .await?;
+
+    // 3. GC 旧版本（只保留最近 KEEP_VERSIONS）
+    let _ = sqlx::query(
+        r#"
+        DELETE FROM backup_versions
+        WHERE user_id = ? AND kind = ? AND id NOT IN (
+            SELECT id FROM backup_versions
+            WHERE user_id = ? AND kind = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        )
+        "#,
+    )
+    .bind(&user.user_id)
+    .bind(&kind)
+    .bind(&user.user_id)
+    .bind(&kind)
+    .bind(KEEP_VERSIONS)
+    .execute(&state.db)
+    .await;
+
     Ok(Json(BackupSummary {
         kind,
         version: payload.version,
         bytes,
         kdf_algorithm: payload.kdf_algorithm,
+        updated_at: now,
+    }))
+}
+
+// ─── 版本历史 ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct BackupVersionRow {
+    pub id: String,
+    pub kind: String,
+    pub version: i64,
+    pub bytes: i64,
+    pub kdf_algorithm: String,
+    pub created_at: i64,
+}
+
+pub async fn list_versions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(kind): Path<String>,
+) -> AppResult<Json<Vec<BackupVersionRow>>> {
+    let user = extract_user(&state, &headers).await?;
+    validate_kind(&kind)?;
+    let rows = sqlx::query(
+        "SELECT id, kind, version, bytes, kdf_algorithm, created_at FROM backup_versions WHERE user_id = ? AND kind = ? ORDER BY created_at DESC"
+    )
+    .bind(&user.user_id)
+    .bind(&kind)
+    .fetch_all(&state.db)
+    .await?;
+    let out = rows
+        .into_iter()
+        .map(|r| BackupVersionRow {
+            id: r.get("id"),
+            kind: r.get("kind"),
+            version: r.get("version"),
+            bytes: r.get("bytes"),
+            kdf_algorithm: r.get("kdf_algorithm"),
+            created_at: r.get("created_at"),
+        })
+        .collect();
+    Ok(Json(out))
+}
+
+/// POST /api/backup/:kind/restore/:version_id —— 把指定版本恢复成当前快照。
+pub async fn restore_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((kind, version_id)): Path<(String, String)>,
+) -> AppResult<Json<BackupSummary>> {
+    let user = extract_user(&state, &headers).await?;
+    validate_kind(&kind)?;
+
+    let row = sqlx::query(
+        "SELECT ciphertext, kdf_salt, kdf_algorithm, version FROM backup_versions WHERE id = ? AND user_id = ? AND kind = ?"
+    )
+    .bind(&version_id)
+    .bind(&user.user_id)
+    .bind(&kind)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let ciphertext: Vec<u8> = row.get("ciphertext");
+    let salt: Vec<u8> = row.get("kdf_salt");
+    let kdf_algorithm: String = row.get("kdf_algorithm");
+    let version: i64 = row.get("version");
+    let bytes = ciphertext.len() as i64;
+    let now = Utc::now().timestamp_millis();
+    let id = Uuid::new_v4().to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO backups (id, user_id, kind, ciphertext, kdf_salt, kdf_algorithm, version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, kind) DO UPDATE SET
+            ciphertext = excluded.ciphertext,
+            kdf_salt = excluded.kdf_salt,
+            kdf_algorithm = excluded.kdf_algorithm,
+            version = excluded.version,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&id)
+    .bind(&user.user_id)
+    .bind(&kind)
+    .bind(&ciphertext)
+    .bind(&salt)
+    .bind(&kdf_algorithm)
+    .bind(version)
+    .bind(now)
+    .bind(now)
+    .execute(&state.db)
+    .await?;
+
+    crate::audit::record_with_metadata(
+        &state.db,
+        crate::audit::AuditEvent {
+            actor_user_id: Some(&user.user_id),
+            actor_email: &user.email,
+            actor_ip: "",
+            event_type: "backup.restore_version",
+            target_kind: "backup",
+            target_id: &kind,
+        },
+        serde_json::json!({"version_id": version_id}),
+    )
+    .await;
+
+    Ok(Json(BackupSummary {
+        kind,
+        version,
+        bytes,
+        kdf_algorithm,
         updated_at: now,
     }))
 }

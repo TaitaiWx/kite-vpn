@@ -50,6 +50,13 @@ fn cache() -> &'static Mutex<Option<CacheEntry>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
+/// 强制清空 cache —— 由 GitHub webhook 在 release.published 时调用，
+/// 保证客户端下次请求拉到最新版（不用等 5min TTL）。
+pub async fn invalidate_cache() {
+    let mut guard = cache().lock().await;
+    *guard = None;
+}
+
 /// GET /api/updates/latest.json
 ///
 /// Tauri 期望的 schema (官方文档):

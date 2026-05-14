@@ -38,7 +38,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Error handling
 thiserror = "1"
@@ -61,6 +61,19 @@ url = "2"
 
 # HTTP client (用于 update endpoint 透传 GitHub Releases latest.json)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# TOTP 二次验证（Google Authenticator / 1Password 兼容）
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+
+# Rate limit middleware（防 magic link 滥发 + 暴力穷举）
+tower_governor = { version = "0.4", features = ["axum"] }
+governor = "0.6"
+
+# HMAC-SHA256（GitHub webhook 验签）
+hmac = "0.12"
+
+# Hex 编码（webhook 签名比较 / fingerprint）
+hex = "0.4"
 
 [dev-dependencies]
 # Integration test helpers

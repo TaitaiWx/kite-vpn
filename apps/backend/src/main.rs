@@ -24,15 +24,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 加载 .env（如果存在）
     let _ = dotenvy::dotenv();
 
-    // 初始化 tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,kite_backend=debug,tower_http=debug".into()),
-        )
-        .with_target(false)
-        .compact()
-        .init();
+    // 初始化 tracing —— stdout JSON 给 k8s log scrape；如果设了 KITE_OTLP_ENDPOINT
+    // 同时往 OTLP 端点（Tempo / Jaeger / SigNoz / Honeycomb 都支持）推 span。
+    // OTLP 集成在 v0.3 真上 OTLP exporter 之前先标记字段就够 grafana log explorer 用了。
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,kite_backend=debug,tower_http=debug".into());
+
+    if std::env::var("KITE_LOG_FORMAT").as_deref() == Ok("json") {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .json()
+            .with_current_span(true)
+            .with_span_list(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .compact()
+            .init();
+    }
+
+    if let Ok(endpoint) = std::env::var("KITE_OTLP_ENDPOINT") {
+        tracing::info!(otlp = %endpoint, "OTLP endpoint 配置已读取（exporter 集成留 v0.3）");
+    }
 
     let database_url = std::env::var("KITE_DATABASE_URL").unwrap_or_else(|_| "sqlite:./kite.db".into());
     let bind = std::env::var("KITE_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
