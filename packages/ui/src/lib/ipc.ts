@@ -409,6 +409,143 @@ export async function accountRestoreCaKey(passphrase: string): Promise<IpcResult
 }
 
 // ---------------------------------------------------------------------------
+// Account v0.2: 公网邀请 (F) / 跨 Mesh 互联 (G) / 更新签名验证
+// ---------------------------------------------------------------------------
+
+export interface CreateInviteRequest {
+  peerName: string
+  meshIp: string
+  passphrase: string
+  ttlHours: number
+}
+
+export interface CreatedInvite {
+  slug: string
+  publicUrl: string
+  expiresAt: number
+  passphraseHintForOwner: string
+}
+
+export interface InviteRow {
+  slug: string
+  networkId: string
+  peerNameHint: string
+  createdAt: number
+  expiresAt: number
+  consumedAt: number | null
+  consumerEmail: string | null
+}
+
+export interface ConsumedInvite {
+  networkId: string
+  networkName: string
+  meshIp: string
+  peerName: string
+}
+
+export async function accountCreateInvite(request: CreateInviteRequest): Promise<IpcResult<CreatedInvite>> {
+  return invoke<CreatedInvite>('account_create_invite', { request })
+}
+
+export async function accountListInvites(): Promise<IpcResult<InviteRow[]>> {
+  return invoke<InviteRow[]>('account_list_invites', {})
+}
+
+export async function accountRevokeInvite(slug: string): Promise<IpcResult<void>> {
+  return invoke<void>('account_revoke_invite', { slug })
+}
+
+export async function accountConsumeInvite(
+  serverUrl: string,
+  slug: string,
+  passphrase: string,
+): Promise<IpcResult<ConsumedInvite>> {
+  return invoke<ConsumedInvite>('account_consume_invite', { serverUrl, slug, passphrase })
+}
+
+// ─── 跨 Mesh 互联 (G) ────────────────────────────────────────────────────
+
+export interface CreateBridgeInviteRequest {
+  localPeerId: string
+  remoteOwnerEmailHint: string
+  /** "in" | "out" | "both" */
+  direction: string
+  ttlHours: number
+}
+
+export interface CreatedBridgeInvite {
+  bridgeToken: string
+  redeemUrl: string
+  expiresAt: number
+}
+
+export interface RedeemBridgeRequest {
+  redeemUrl: string
+  localPeerId: string
+  localCaFingerprint: string
+}
+
+export interface RedeemedBridge {
+  remoteOwnerEmail: string
+  remoteCaFingerprint: string
+  direction: string
+  remotePeerId: string
+}
+
+export interface BridgeRow {
+  id: string
+  localPeerId: string
+  remotePeerId: string
+  direction: string
+  status: string
+  remoteBackendUrl: string
+  remoteCaFingerprint: string
+  createdAt: number
+  updatedAt: number
+}
+
+export async function accountCreateBridgeInvite(
+  request: CreateBridgeInviteRequest,
+): Promise<IpcResult<CreatedBridgeInvite>> {
+  return invoke<CreatedBridgeInvite>('account_create_bridge_invite', { request })
+}
+
+export async function accountRedeemBridge(request: RedeemBridgeRequest): Promise<IpcResult<RedeemedBridge>> {
+  return invoke<RedeemedBridge>('account_redeem_bridge', { request })
+}
+
+export async function accountListBridges(): Promise<IpcResult<BridgeRow[]>> {
+  return invoke<BridgeRow[]>('account_list_bridges', {})
+}
+
+export async function accountRevokeBridge(id: string): Promise<IpcResult<void>> {
+  return invoke<void>('account_revoke_bridge', { id })
+}
+
+// ─── 更新签名验证 ────────────────────────────────────────────────────────
+
+export interface UpdatePubkeyInfo {
+  pubkeyB64: string
+  algorithm: string
+}
+
+export interface SignedUpdateCheck {
+  body: string
+  signatureB64: string
+  signatureValid: boolean
+  fromCache: boolean
+  pubkeyCached: boolean
+}
+
+export async function accountFetchUpdatePubkey(): Promise<IpcResult<UpdatePubkeyInfo>> {
+  return invoke<UpdatePubkeyInfo>('account_fetch_update_pubkey', {})
+}
+
+export async function accountCheckUpdateSigned(): Promise<IpcResult<SignedUpdateCheck>> {
+  return invoke<SignedUpdateCheck>('account_check_update_signed', {})
+}
+
+// ---------------------------------------------------------------------------
 // Mock 数据（浏览器开发模式用）
 // ---------------------------------------------------------------------------
 

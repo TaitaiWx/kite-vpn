@@ -1044,3 +1044,21 @@ mod tests {
         assert!(parsed.get("listen").is_some());
     }
 }
+
+// ─── 跨模块复用 ────────────────────────────────────────────────────────────
+// 给 commands/account_invites.rs 用 —— 不想完全 public 化 nebula_cert_path /
+// nebula_cert_sign，所以提供薄包装。
+
+pub(super) fn nebula_cert_path_for_invite(app: &AppHandle) -> Result<PathBuf, String> {
+    nebula_cert_path(app)
+}
+
+pub(super) fn nebula_cert_sign_for_invite(
+    nebula_cert: &Path,
+    ca_dir: &Path,
+    out_dir: &Path,
+    node_name: &str,
+    ip_cidr: &str,
+) -> Result<(), String> {
+    nebula_cert_sign(nebula_cert, ca_dir, out_dir, node_name, ip_cidr)
+}

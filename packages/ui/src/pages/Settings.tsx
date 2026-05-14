@@ -30,6 +30,9 @@ import {
 } from 'lucide-react'
 import { DEFAULT_HEALTH_CONFIG } from '@/stores/health'
 import { AccountSection } from '@/pages/Settings/AccountSection'
+import { InvitesSection } from '@/pages/Settings/InvitesSection'
+import { BridgesSection } from '@/pages/Settings/BridgesSection'
+import { UpdateSignatureSection } from '@/pages/Settings/UpdateSignatureSection'
 import { clsx } from 'clsx'
 import type { AppConfig, ProxyMode, LogLevel } from '@kite-vpn/types'
 import { loadAppConfig, saveAppConfig } from '@/lib/ipc'
@@ -777,6 +780,15 @@ export function Settings() {
 
         {/* ── Account (Phase 5 — Kite Backend) ──────────────────── */}
         <div id="account"><AccountSection /></div>
+
+        {/* ── F: 公网邀请链接 ─────────────────────────────────────── */}
+        <div id="invites"><InvitesSection /></div>
+
+        {/* ── G: 跨 Mesh 互联 ─────────────────────────────────────── */}
+        <div id="bridges"><BridgesSection /></div>
+
+        {/* ── 更新签名验证 ────────────────────────────────────────── */}
+        <div id="update-signature"><UpdateSignatureSection /></div>
 
         {/* ── About ───────────────────────────────────────────────── */}
         <div id="about"><SettingsSection

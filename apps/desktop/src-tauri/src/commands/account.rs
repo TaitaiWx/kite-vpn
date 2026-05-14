@@ -33,27 +33,30 @@ use super::IpcResult;
 const ACCOUNT_CONFIG_FILE: &str = "account.json";
 const MESH_DIR: &str = "mesh";
 const CA_KEY_FILE: &str = "ca.key";
-const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+pub(super) const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
 // Argon2id 参数 — 跟 backend README 文档对齐
 // m=64MB (65536 KiB), t=3, p=4 — OWASP 2026 推荐
-const ARGON2_MEMORY_KB: u32 = 65536;
-const ARGON2_ITERATIONS: u32 = 3;
-const ARGON2_PARALLELISM: u32 = 4;
-const ARGON2_OUTPUT_LEN: usize = 32; // 256-bit key
-const KDF_ALGORITHM_TAG: &str = "argon2id-v19-m65536-t3-p4";
+pub(super) const ARGON2_MEMORY_KB: u32 = 65536;
+pub(super) const ARGON2_ITERATIONS: u32 = 3;
+pub(super) const ARGON2_PARALLELISM: u32 = 4;
+pub(super) const ARGON2_OUTPUT_LEN: usize = 32; // 256-bit key
+pub(super) const KDF_ALGORITHM_TAG: &str = "argon2id-v19-m65536-t3-p4";
 
 // ─── 持久化的本地账户配置 ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct PersistedAccount {
+pub(super) struct PersistedAccount {
     /// 后端 base URL，例 https://kite.example.com。未配置则为空字符串。
-    server_url: String,
+    pub(super) server_url: String,
     /// 已登录用户邮箱。未登录则为空字符串。
-    email: String,
+    pub(super) email: String,
     /// 完整的 Cookie header 值，例 "kite_session=xxxxx"。未登录则为空。
-    session_cookie: String,
+    pub(super) session_cookie: String,
+    /// 缓存的 backend update 验签公钥（base64），首次 fetch 后存。空字符串 = 未拿到。
+    #[serde(default)]
+    pub(super) update_pubkey_b64: String,
 }
 
 fn account_config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -65,7 +68,7 @@ fn account_config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(base.join(ACCOUNT_CONFIG_FILE))
 }
 
-fn load_account(app: &AppHandle) -> PersistedAccount {
+pub(super) fn load_account(app: &AppHandle) -> PersistedAccount {
     let path = match account_config_path(app) {
         Ok(p) => p,
         Err(_) => return PersistedAccount::default(),
@@ -76,7 +79,7 @@ fn load_account(app: &AppHandle) -> PersistedAccount {
         .unwrap_or_default()
 }
 
-fn save_account(app: &AppHandle, account: &PersistedAccount) -> Result<(), String> {
+pub(super) fn save_account(app: &AppHandle, account: &PersistedAccount) -> Result<(), String> {
     let path = account_config_path(app)?;
     let json = serde_json::to_string_pretty(account)
         .map_err(|e| format!("序列化失败: {}", e))?;
@@ -111,7 +114,7 @@ pub struct BackupSummary {
 
 // ─── HTTP client ────────────────────────────────────────────────────────
 
-fn http_client() -> Result<reqwest::Client, String> {
+pub(super) fn http_client() -> Result<reqwest::Client, String> {
     // .no_proxy() 防止 mihomo 把 backend 请求绕进墙
     reqwest::Client::builder()
         .no_proxy()
@@ -285,7 +288,7 @@ pub async fn account_logout(app: AppHandle) -> IpcResult<()> {
 
 // ─── KDF + 加密 helpers ─────────────────────────────────────────────────
 
-fn argon2_kdf(passphrase: &str, salt: &[u8]) -> Result<[u8; ARGON2_OUTPUT_LEN], String> {
+pub(super) fn argon2_kdf(passphrase: &str, salt: &[u8]) -> Result<[u8; ARGON2_OUTPUT_LEN], String> {
     let params = Params::new(
         ARGON2_MEMORY_KB,
         ARGON2_ITERATIONS,
@@ -302,7 +305,7 @@ fn argon2_kdf(passphrase: &str, salt: &[u8]) -> Result<[u8; ARGON2_OUTPUT_LEN], 
     Ok(key)
 }
 
-fn aes_encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+pub(super) fn aes_encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce_bytes = [0u8; 12];
     rand::rngs::OsRng
@@ -319,7 +322,7 @@ fn aes_encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
     Ok(combined)
 }
 
-fn aes_decrypt(key: &[u8; 32], combined: &[u8]) -> Result<Vec<u8>, String> {
+pub(super) fn aes_decrypt(key: &[u8; 32], combined: &[u8]) -> Result<Vec<u8>, String> {
     if combined.len() < 12 + 16 {
         return Err("ciphertext 太短".to_string());
     }
@@ -332,17 +335,17 @@ fn aes_decrypt(key: &[u8; 32], combined: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|_| "解密失败（passphrase 错或备份损坏）".to_string())
 }
 
-fn b64_encode(bytes: &[u8]) -> String {
+pub(super) fn b64_encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+pub(super) fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::STANDARD
         .decode(s.trim())
         .map_err(|e| format!("base64 解码失败: {}", e))
 }
 
-fn generate_kdf_salt() -> Result<[u8; 16], String> {
+pub(super) fn generate_kdf_salt() -> Result<[u8; 16], String> {
     let salt = SaltString::generate(&mut ArgonOsRng);
     let raw = salt.as_str().as_bytes();
     // SaltString 给的是 base64-ish 长度可变；我们需要固定 16 字节
