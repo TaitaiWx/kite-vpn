@@ -88,3 +88,15 @@ export type {
   IpcEvents,
   IpcResult,
 } from './ipc.js'
+
+export type {
+  // Mesh network (Phase 4 — Nebula 集成)
+  MeshPeerRole,
+  MeshPeerStatus,
+  MeshPeer,
+  MeshNetwork,
+  MeshEnrollmentToken,
+  MeshAclRule,
+  MeshEngineStatus,
+  MeshEngineState,
+} from './mesh.js'

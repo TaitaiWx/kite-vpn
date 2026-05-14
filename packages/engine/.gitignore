@@ -26,3 +26,9 @@ test/config/cache*
 /output
 .vscode/
 .fleet/
+
+# Nebula 源码（build-nebula.sh 会在首次编译时克隆）
+nebula-src/
+
+# build 产物
+build/

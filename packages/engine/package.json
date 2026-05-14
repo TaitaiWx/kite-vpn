@@ -2,13 +2,17 @@
   "name": "@kite-vpn/engine",
   "version": "0.1.0",
   "private": true,
-  "description": "mihomo proxy engine (Go source, compiled to binary)",
+  "description": "mihomo proxy engine + Nebula mesh engine (Go source, compiled to sidecars)",
   "scripts": {
-    "build": "bash scripts/build.sh && bash scripts/download-geodata.sh",
-    "build:current": "bash scripts/build.sh current && bash scripts/download-geodata.sh",
-    "build:desktop": "bash scripts/build.sh desktop && bash scripts/download-geodata.sh",
+    "build": "bash scripts/build.sh && bash scripts/build-nebula.sh && bash scripts/download-geodata.sh",
+    "build:current": "bash scripts/build.sh current && bash scripts/build-nebula.sh current && bash scripts/download-geodata.sh",
+    "build:desktop": "bash scripts/build.sh desktop && bash scripts/build-nebula.sh desktop && bash scripts/download-geodata.sh",
     "build:mobile": "bash scripts/build.sh mobile",
-    "build:all": "bash scripts/build.sh && bash scripts/download-geodata.sh",
-    "clean": "rm -rf build/"
+    "build:nebula": "bash scripts/build-nebula.sh",
+    "build:nebula:current": "bash scripts/build-nebula.sh current",
+    "build:mihomo": "bash scripts/build.sh && bash scripts/download-geodata.sh",
+    "build:mihomo:current": "bash scripts/build.sh current && bash scripts/download-geodata.sh",
+    "build:all": "bash scripts/build.sh && bash scripts/build-nebula.sh && bash scripts/download-geodata.sh",
+    "clean": "rm -rf build/ nebula-src/"
   }
 }

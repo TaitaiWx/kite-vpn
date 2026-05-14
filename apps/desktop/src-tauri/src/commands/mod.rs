@@ -17,6 +17,7 @@ pub mod config;
 pub mod system;
 pub mod mihomo;
 pub mod speed_test;
+pub mod mesh;
 
 // 顶层 wildcard re-export：保持 `commands::xxx` 路径不变，lib.rs 的 generate_handler!
 // 不用改。必须用 `*` 而不是命名导入，因为 #[tauri::command] 宏会生成
@@ -27,6 +28,7 @@ pub use config::*;
 pub use system::*;
 pub use mihomo::*;
 pub use speed_test::*;
+pub use mesh::*;
 
 // ─── 共享类型 ───────────────────────────────────────────────────────────────
 

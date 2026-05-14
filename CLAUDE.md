@@ -86,6 +86,19 @@ pnpm run release:beta
 5. Add a TypeScript wrapper in `packages/ui/src/lib/ipc.ts`. Tauri auto-converts camelCase JS args to snake_case Rust args — but the **return type field names stay snake_case from Rust serde**, so map them manually when consuming (see `testNodeRealSpeed` for the pattern).
 6. If the type is shared, add it to `packages/types/src/proxy.ts` (or appropriate file) and re-export from `packages/types/src/index.ts`.
 
+## Workspace rules (inherited from `../claude.md`)
+
+These rules apply to ALL work in this repo. Defer to workspace `claude.md` when in doubt:
+
+1. **业界最佳实践**: prefer battle-tested OSS over custom (Nebula > write-your-own-WireGuard)
+2. **第一性原理**: start from the user's pain, not from "feature parity"
+3. **fmt + check + test before push**: `cargo check && cargo test && pnpm -r typecheck && pnpm test`
+4. **多写测试**: every new IPC command needs Rust unit tests; every new hook needs Vitest
+5. **文档干净**: delete stale docs / comments instead of leaving them; consolidate when possible
+6. **UI 组件开箱即用**: components in `packages/ui/src/components/` (Select, Input, NumberInput, Tooltip, ToggleSwitch via settings-shared) are styled correctly — never override their styles in business pages
+7. **设计不放内存**: write architectural decisions to design docs in `~/.gstack/projects/vpn/` so they survive across sessions
+8. **禁止隐藏变量 / 禁止滥用 `?`**: in TypeScript, prefer explicit defaults over optional. Use `?` only when "absent" is a real semantic state, not "I'll fill this in later". Same for Rust `Option<T>`.
+
 ## Project-specific quirks (gotchas)
 
 ### `reqwest::Client::builder()` MUST call `.no_proxy()` (Rust)
@@ -117,14 +130,26 @@ If you write Rust tests, prefer the `tokio::test` async pattern; see existing te
 
 If you change anything in `packages/core/src/subscription/`, run `pnpm test` — those tests are the only safety net for protocol parsing.
 
-## Active product direction (as of 2026-04)
+## Active product direction (as of 2026-05)
 
-**Mode**: SELECTIVE EXPANSION (per CEO plan at `~/.gstack/projects/vpn/ceo-plans/2026-04-26-personal-small-team-pivot.md`)
+**Vision**: **Kite = 翻墙 + Mesh + 配置同步 一体化的开源个人云**
 
-- **Wedge**: 个人 + 小团队（同一人多设备），dropping B2B
-- **v1 differentiators** (vs Clash Verge Rev): real-speed test ✅ + cross-device sync ⏳
-- **Parked**: Mesh, B2B small-team backend, iOS (v2)
-- **Deferred**: AI rule generator (v1.5), browser extension (v2)
+**Mode**: SELECTIVE EXPANSION (per Phase 4 design at
+`~/.gstack/projects/vpn/fengwenxuan-main-design-20260514-015705-mesh.md`)
+
+Active priorities:
+- ✅ candidate C real-speed test (shipped 1.0.1-beta.16)
+- ✅ HealthCheck auto-reconnect + disconnect alerts (shipped 1.0.1-beta.16)
+- ⏳ **Phase 4: Mesh integration via embedded Nebula** ← current focus
+  - 4-6 weeks MVP, 12 weeks full v2 (with ACL + 文件共享)
+- ⏳ Phase 5: 跨设备配置同步 (deferred from Phase 4, becomes trivial once Mesh exists)
+
+Parked / Deferred:
+- 从零写 Mesh 协议 (user explicitly chose embedded Nebula over scratch)
+- B2B small-team backend (5 inbound leads no payment intent, dropped)
+- IPSec / SSL VPN (enterprise VPN — different product)
+- AI rule generator (v3+)
+- iOS App Store (v3)
 
 ## When you finish a feature
 
