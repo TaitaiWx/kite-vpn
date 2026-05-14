@@ -1,0 +1,8 @@
+target/
+deploy.sh
+README.md
+*.md
+.env
+.env.*
+!.env.example
+tests/

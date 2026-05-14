@@ -1,28 +1,33 @@
 [Unit]
-Description=Kite Backend (零知识账户 + 备份服务)
+Description=Kite (零知识账户 + 加密备份 + Nebula lighthouse)
 Documentation=https://github.com/TaitaiWx/kite-vpn
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=kite-backend
-Group=kite-backend
+User=kite
+Group=kite
 ExecStart=/usr/local/bin/kite-backend
-EnvironmentFile=/etc/kite-backend/env
-WorkingDirectory=/var/lib/kite-backend
+EnvironmentFile=/etc/kite/env
+WorkingDirectory=/var/lib/kite
 
 Restart=always
 RestartSec=5s
 StartLimitBurst=5
 StartLimitIntervalSec=30s
 
+# Nebula 需要绑端口 4242 (UDP) —— 用户态用 CAP_NET_BIND_SERVICE 足够
+# 不开 TUN（lighthouse 模式），不需要 CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 # 沙箱加固
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/kite-backend
+ReadWritePaths=/var/lib/kite
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -34,7 +39,6 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 
-# 资源限制
 LimitNOFILE=65535
 MemoryMax=512M
 

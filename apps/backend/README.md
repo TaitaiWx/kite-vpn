@@ -134,26 +134,68 @@ GET 返回同样格式，由客户端解密。
 | `KITE_SMTP_FROM_EMAIL` | — | 发件人邮箱 |
 | `KITE_SMTP_FROM_NAME` | `Kite` | 发件人名称 |
 
-## 部署到 VPS
+## 部署 (docker-compose)
 
-跟 lighthouse 同一台 VPS（推荐）：
+**一台 VPS，一个 compose 文件，一个进程托管 backend + nebula lighthouse。**
 
+```bash
+# 在 VPS 上
+git clone https://github.com/TaitaiWx/kite-vpn.git
+cd kite-vpn/apps/backend
+
+# 1. 准备 .env（域名、SMTP、Nebula 端口）
+cp .env.example .env
+$EDITOR .env
+
+# 2. 生成 Nebula CA 和 lighthouse 证书（一次性）
+mkdir -p pki && cd pki
+docker run --rm -v "$PWD:/work" -w /work \
+  ghcr.io/taitaiwx/kite-backend:latest \
+  nebula-cert ca -name "kite-mesh"
+docker run --rm -v "$PWD:/work" -w /work \
+  ghcr.io/taitaiwx/kite-backend:latest \
+  nebula-cert sign -name "lighthouse" -ip "100.64.0.1/24"
+cd ..
+
+# 3. 渲染 nebula 配置
+mkdir -p config
+envsubst < templates/nebula.yaml.template > config/nebula.yaml
+
+# 4. 拿 TLS 证书（先把 80 暴露给 certbot bootstrap）
+docker run --rm -p 80:80 \
+  -v "$PWD/certbot/conf:/etc/letsencrypt" \
+  -v "$PWD/certbot/www:/var/www/acme" \
+  certbot/certbot certonly --standalone \
+  -d "$KITE_DOMAIN" --email you@example.com --agree-tos -n
+
+# 5. 起服务
+docker compose up -d
+
+# 6. 看日志
+docker compose logs -f kite-backend
 ```
-your-vps/
-├── /usr/local/bin/kite-lighthouse    nebula lighthouse 二进制
-├── /usr/local/bin/kite-backend       本服务二进制
-├── /etc/kite-lighthouse/             lighthouse 配置
-├── /etc/kite-backend/                本服务配置
-└── /var/lib/kite-backend/kite.db     SQLite 数据库
+
+升级：
+```bash
+docker compose pull && docker compose up -d
 ```
 
-部署脚本 `deploy.sh` 在 **v0.2 加上**（跟 lighthouse 共用同一个 reverse proxy）。
+数据备份：`docker compose exec kite-backend sqlite3 /var/lib/kite/kite.db .dump > backup.sql`
 
-当前手动部署：
-1. `cargo build --release --target x86_64-unknown-linux-gnu`
-2. `scp target/.../kite-backend root@vps:/usr/local/bin/`
-3. 写一个 systemd unit（参考 `apps/lighthouse/templates/kite-lighthouse.service`）
-4. 配 Caddy / nginx 反代 + HTTPS（Let's Encrypt）
+### 不用 Docker 想跑裸进程？
+
+OK，提供了 systemd 模板，但需要你手动放二进制：
+
+```bash
+cargo build --release --bin kite-backend
+sudo cp target/release/kite-backend /usr/local/bin/
+sudo install -m 0644 templates/kite-backend.service /etc/systemd/system/
+sudo install -m 0640 templates/env.template /etc/kite/env  # 改值
+sudo systemctl daemon-reload && sudo systemctl enable --now kite-backend
+```
+
+Nebula 二进制自己下：https://github.com/slackhq/nebula/releases —— 放到 `/usr/local/bin/nebula` 即可，
+kite-backend 启动时根据 `KITE_NEBULA_BIN` 自动 spawn。
 
 ## 测试
 

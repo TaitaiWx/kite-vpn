@@ -5,7 +5,9 @@ pub mod backup;
 pub mod db;
 pub mod error;
 pub mod mailer;
+pub mod nebula;
 pub mod state;
+pub mod updates;
 
 use axum::{
     routing::{delete, get, post, put},
@@ -27,6 +29,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/backup/:kind", put(backup::upload_backup))
         .route("/api/backup/:kind", get(backup::download_backup))
         .route("/api/backup/:kind", delete(backup::delete_backup))
+        // Updates (Tauri auto-updater 主 endpoint，副 endpoint 是 GitHub Releases)
+        .route("/api/updates/latest.json", get(updates::latest_json))
         // Health
         .route("/health", get(|| async { "ok" }))
         .layer(TraceLayer::new_for_http())

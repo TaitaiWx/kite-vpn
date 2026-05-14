@@ -14,6 +14,7 @@ use std::sync::Arc;
 use kite_backend::{
     build_router, db,
     mailer::{SharedMailer, SmtpConfig, SmtpMailer, StdoutMailer},
+    nebula::NebulaSupervisor,
     state::{AppConfig, AppState},
 };
 
@@ -53,9 +54,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = AppState::new(db, mailer, config);
     let app = build_router(state);
 
+    // Nebula lighthouse 子进程 —— 如果 ENV 配了就拉起来，做"一个 systemd service 两件事"。
+    // 不配就跳过（dev / 纯后端模式）。
+    let mut nebula = NebulaSupervisor::maybe_spawn_from_env()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(addr = %bind, "kite-backend listening");
-    axum::serve(listener, app).await?;
+
+    // 同时 await axum 和 nebula。任意一个挂掉就整体退出 →
+    // systemd / Docker 重启拉起来（健康自愈）。
+    let server = axum::serve(listener, app);
+    match nebula.as_mut() {
+        Some(nb) => {
+            tokio::select! {
+                r = server => {
+                    r?;
+                }
+                exit = nb.wait_exit() => {
+                    tracing::error!(?exit, "nebula 子进程退出，kite-backend 跟着退");
+                }
+            }
+        }
+        None => {
+            server.await?;
+        }
+    }
     Ok(())
 }
 

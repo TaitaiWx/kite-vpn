@@ -116,8 +116,12 @@ When the engine is running, system proxy is set to `127.0.0.1:7890` (mihomo). If
 ### CREATE_NO_WINDOW on Windows
 Every `std::process::Command::new()` on Windows must set `creation_flags(0x08000000)` to suppress the console black flash. Use the `cmd()` helper in `commands/mod.rs`.
 
-### Tauri auto-update uses minisign
-`apps/desktop/src-tauri/tauri.conf.json` has the public key embedded; the corresponding private key must be set in CI as `TAURI_SIGNING_PRIVATE_KEY`. Don't commit the private key. CD workflow at `.github/workflows/cd.yml`.
+### Tauri auto-update: dual endpoint + minisign
+`apps/desktop/src-tauri/tauri.conf.json` has TWO endpoints in priority order:
+1. `https://updates.kitevpn.app/api/updates/latest.json` (kite-backend `/api/updates/latest.json` — proxies/caches GitHub, can be hotfix-overridden via `KITE_UPDATE_SOURCE_URL`)
+2. `https://github.com/TaitaiWx/kite-vpn/releases/latest/download/latest.json` (GitHub Releases — fallback if backend is down)
+
+Tauri's updater tries them in order; if the first 404s / times out it falls through. Self-hosters can either point DNS for `updates.kitevpn.app` at their backend OR fork and replace the URL at build time. minisign pubkey is embedded; private key in CI as `TAURI_SIGNING_PRIVATE_KEY`. CD workflow at `.github/workflows/cd.yml`.
 
 ## Testing
 

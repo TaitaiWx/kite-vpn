@@ -1,18 +1,19 @@
-# Kite Backend — nginx 反代配置（deploy.sh 渲染后落到 /etc/nginx/sites-available/kite-backend）
+# Kite nginx 反代配置 —— docker-compose 启动时 envsubst 渲染。
 #
-# 模板变量:
-#   __DOMAIN__      你的域名（例: kite.example.com）
-#   __BACKEND_PORT__  本机 kite-backend 监听端口（默认 8787）
-#
-# HTTPS 证书由 certbot 自动管理（deploy.sh 会跑 certbot certonly）。
+# 变量（compose 的 env_file / docker-compose.yml 里 environment 注入）：
+#   ${KITE_DOMAIN}        你的域名，例 kite.example.com
+#   ${KITE_BACKEND_HOST}  上游 host，compose 网络里就是 service 名（默认 kite-backend）
+#   ${KITE_BACKEND_PORT}  上游端口（默认 8787）
+
+# Rate limit zone —— 防 magic-link 滥发（必须在 http {} 顶层声明，main nginx.conf 引这个）
+limit_req_zone $binary_remote_addr zone=kite_auth:10m rate=5r/m;
 
 # HTTP → HTTPS 重定向 + ACME challenge
 server {
     listen 80;
     listen [::]:80;
-    server_name __DOMAIN__;
+    server_name ${KITE_DOMAIN};
 
-    # Let's Encrypt ACME http-01 challenge
     location /.well-known/acme-challenge/ {
         root /var/www/acme;
     }
@@ -22,79 +23,64 @@ server {
     }
 }
 
-# HTTPS 主入口
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name __DOMAIN__;
+    server_name ${KITE_DOMAIN};
 
-    # ── Let's Encrypt 证书（由 certbot 自动续签） ────────────────────────
-    ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    # 证书 —— certbot 容器把 /etc/letsencrypt 挂进来
+    ssl_certificate     /etc/letsencrypt/live/${KITE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${KITE_DOMAIN}/privkey.pem;
 
-    # ── TLS 加固（Mozilla intermediate, 2026 baseline） ──────────────────
+    # TLS 加固（Mozilla intermediate, 2026 baseline）
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:KiteBackend:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
-    # OCSP stapling
     ssl_stapling on;
     ssl_stapling_verify on;
     resolver 1.1.1.1 8.8.8.8 valid=300s;
 
-    # ── 安全头 ──────────────────────────────────────────────────────────
+    # 安全头
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    # 不开 CSP —— backend 不输出 HTML（只 JSON + redirect）
 
-    # ── Body size: 备份 blob 最多 1MB，给点余量 ──────────────────────────
+    # 备份 blob 上限 1MB，给点余量
     client_max_body_size 2m;
     client_body_buffer_size 256k;
 
-    # ── 日志 ───────────────────────────────────────────────────────────
-    access_log /var/log/nginx/kite-backend.access.log;
-    error_log  /var/log/nginx/kite-backend.error.log warn;
+    access_log /var/log/nginx/kite.access.log;
+    error_log  /var/log/nginx/kite.error.log warn;
 
-    # ── 反代到 kite-backend ────────────────────────────────────────────
     location / {
-        proxy_pass http://127.0.0.1:__BACKEND_PORT__;
+        proxy_pass http://${KITE_BACKEND_HOST}:${KITE_BACKEND_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        # 关键: 把 cookie 路径正确传回
-        proxy_set_header Cookie $http_cookie;
         proxy_pass_header Set-Cookie;
-
-        # 超时（备份大 blob 可能慢，给充足时间）
         proxy_connect_timeout 10s;
         proxy_send_timeout    60s;
         proxy_read_timeout    60s;
     }
 
-    # ── Rate limit: 防 magic-link 滥发 ──────────────────────────────────
     location = /api/auth/request-login {
         limit_req zone=kite_auth burst=5 nodelay;
         limit_req_status 429;
-        proxy_pass http://127.0.0.1:__BACKEND_PORT__;
+        proxy_pass http://${KITE_BACKEND_HOST}:${KITE_BACKEND_PORT};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # ── ACME challenge（续签时） ────────────────────────────────────────
     location /.well-known/acme-challenge/ {
         root /var/www/acme;
     }
 }
-
-# 注: nginx.conf 主配置里需要预声明 limit_req_zone（deploy.sh 会处理）：
-#     limit_req_zone $binary_remote_addr zone=kite_auth:10m rate=5r/m;
