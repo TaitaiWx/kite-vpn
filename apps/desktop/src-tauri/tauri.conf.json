@@ -43,7 +43,9 @@
       "nsis"
     ],
     "externalBin": [
-      "binaries/mihomo"
+      "binaries/mihomo",
+      "binaries/nebula",
+      "binaries/nebula-cert"
     ],
     "resources": [
       "resources/*"

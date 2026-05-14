@@ -1,0 +1,73 @@
+# Kite Lighthouse — Nebula 配置（部署时由 deploy.sh 渲染）
+#
+# Lighthouse 是 Mesh 网络的"灯塔"：帮助 peer 互相发现、辅助 NAT 穿透。
+# 跟 owner / member 节点不同：lighthouse 不分发流量，不需要 TUN 接口。
+#
+# 模板变量（deploy.sh 用 sed 替换）：
+#   __PORT__              监听端口（默认 4242）
+#   __LIGHTHOUSE_IP__     Mesh 内网 IP（默认 100.64.0.1）
+
+pki:
+  ca: /etc/kite-lighthouse/ca.crt
+  cert: /etc/kite-lighthouse/lighthouse.crt
+  key: /etc/kite-lighthouse/lighthouse.key
+
+# Lighthouse 是网络入口，自己不需要 static_host_map
+static_host_map: {}
+
+lighthouse:
+  am_lighthouse: true
+  # 不暴露 DNS（v1 简化：依赖客户端的 MagicDNS）
+  serve_dns: false
+  # 每 60 秒向 peer 广播路由表
+  interval: 60
+
+listen:
+  # IPv6 双栈：`::` 在大多数现代 Linux 上同时监听 IPv6 + IPv4-mapped-IPv6。
+  # 如果你的 VPS 关闭了 IPv4-mapped（net.ipv6.bindv6only=1），改用 0.0.0.0。
+  # deploy.sh 的 --ipv4-only 会改成 0.0.0.0。
+  host: "__LISTEN_HOST__"
+  port: __PORT__
+  # 读缓冲 100MB（高吞吐网络下避免丢包）
+  read_buffer: 104857600
+  write_buffer: 104857600
+
+# NAT 穿透 — lighthouse 不在 NAT 后但仍开 punchy 帮助 client-to-client
+punchy:
+  punch: true
+  respond: true
+  # NAT 穿透重试间隔
+  delay: 1s
+
+# 关闭 TUN — lighthouse 只做控制面，不转发数据
+tun:
+  disabled: true
+
+# Firewall — lighthouse 不需要业务流量，只放 ICMP（方便诊断）
+firewall:
+  outbound_action: drop
+  inbound_action: drop
+  conntrack:
+    tcp_timeout: 12m
+    udp_timeout: 3m
+    default_timeout: 10m
+  outbound:
+    - port: any
+      proto: any
+      host: any
+  inbound:
+    - port: any
+      proto: icmp
+      host: any
+
+logging:
+  level: info
+  format: text
+
+# 启用 stats endpoint 方便诊断（可选）
+stats:
+  type: prometheus
+  listen: 127.0.0.1:8424
+  path: /metrics
+  namespace: kite_lighthouse
+  interval: 10s

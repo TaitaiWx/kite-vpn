@@ -1,5 +1,6 @@
 mod commands;
 mod engine;
+mod nebula_engine;
 mod native_menu_mac;
 mod system_proxy;
 mod tray;
@@ -69,10 +70,16 @@ pub fn run() {
         let _ = system_proxy::disable();
         #[cfg(unix)]
         {
-            let _ = std::process::Command::new("killall")
-                .args(["-TERM", "mihomo-aarch64-apple-darwin"]).output();
-            let _ = std::process::Command::new("killall")
-                .args(["-TERM", "mihomo-x86_64-apple-darwin"]).output();
+            // mihomo + nebula 都用 killall 兜底（dev 模式 child handle 可能丢失）
+            for name in [
+                "mihomo-aarch64-apple-darwin",
+                "mihomo-x86_64-apple-darwin",
+                "nebula-aarch64-apple-darwin",
+                "nebula-x86_64-apple-darwin",
+            ] {
+                let _ = std::process::Command::new("killall")
+                    .args(["-TERM", name]).output();
+            }
         }
         eprintln!("[KITE] Cleanup done, exiting.");
         std::process::exit(0);
@@ -89,6 +96,7 @@ pub fn run() {
         // 更新完整性靠 minisign 签名保证（pubkey 在 tauri.conf.json）。
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine::EngineState::new())
+        .manage(nebula_engine::NebulaEngineState::new())
         .setup(|app| {
             // 启动时清理：如果上次异常退出残留了系统代理但引擎没跑，关掉代理
             if system_proxy::is_enabled().unwrap_or(false) {
@@ -150,6 +158,7 @@ pub fn run() {
             commands::mesh_generate_enrollment_token,
             commands::mesh_join_network,
             commands::mesh_revoke_peer,
+            commands::mesh_get_logs,
             commands::sync_tray_state,
             commands::apply_mixin_and_reload,
             commands::rebuild_tray_with_proxies,
@@ -168,6 +177,11 @@ pub fn run() {
                 let _ = system_proxy::disable();
                 // 停 mihomo 进程
                 if let Some(state) = _app.try_state::<engine::EngineState>() {
+                    let mut eng = state.engine.lock().unwrap();
+                    let _ = eng.stop();
+                }
+                // 停 nebula 进程
+                if let Some(state) = _app.try_state::<nebula_engine::NebulaEngineState>() {
                     let mut eng = state.engine.lock().unwrap();
                     let _ = eng.stop();
                 }

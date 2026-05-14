@@ -1,0 +1,48 @@
+[Unit]
+Description=Kite Lighthouse (Nebula Mesh discovery service)
+Documentation=https://github.com/TaitaiWx/kite-vpn
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kite-lighthouse -config /etc/kite-lighthouse/config.yaml
+
+# Restart 策略：进程退出 5 秒后自动拉起，最多 5 次/30s
+Restart=always
+RestartSec=5s
+StartLimitBurst=5
+StartLimitIntervalSec=30s
+
+# Capabilities — lighthouse 关了 TUN，不需要 CAP_NET_ADMIN
+# 只需要绑端口的能力
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Sandbox 加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/kite-lighthouse
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# 资源限制
+LimitNOFILE=65535
+MemoryMax=256M
+
+# 日志走 journald（journalctl -u kite-lighthouse 看）
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

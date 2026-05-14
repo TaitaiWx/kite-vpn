@@ -23,6 +23,7 @@ import {
   Shield,
   ShieldOff,
   ListTree,
+  Network as NetworkIcon,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -43,6 +44,7 @@ import { Rules } from '@/pages/Rules'
 import { Connections } from '@/pages/Connections'
 import { Logs } from '@/pages/Logs'
 import { Settings } from '@/pages/Settings'
+import { NetworkPage } from '@/pages/Network'
 
 import type { ProxyMode } from '@kite-vpn/types'
 
@@ -61,6 +63,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { path: '/proxies', label: '代理', icon: <Globe size={18} /> },
   { path: '/subscriptions', label: '订阅', icon: <Link size={18} /> },
   { path: '/rules', label: '规则', icon: <ListTree size={18} /> },
+  { path: '/network', label: '网络', icon: <NetworkIcon size={18} /> },
   { path: '/connections', label: '连接', icon: <ArrowRightLeft size={18} /> },
   { path: '/logs', label: '日志', icon: <ScrollText size={18} /> },
   { path: '/settings', label: '设置', icon: <SettingsIcon size={18} /> },
@@ -395,6 +398,7 @@ export default function App() {
       <Route path="/proxies" element={<Proxies />} />
       <Route path="/subscriptions" element={<Subscriptions />} />
       <Route path="/rules" element={<Rules />} />
+      <Route path="/network" element={<NetworkPage />} />
       <Route path="/connections" element={<Connections />} />
       <Route path="/logs" element={<Logs />} />
       <Route path="/settings" element={<Settings />} />

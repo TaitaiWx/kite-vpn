@@ -301,6 +301,64 @@ export async function mihomoCloseConnections(): Promise<IpcResult<void>> {
 }
 
 // ---------------------------------------------------------------------------
+// Mesh (Phase 4 — Nebula 集成)
+// ---------------------------------------------------------------------------
+
+import type {
+  MeshEngineState,
+  MeshNetwork,
+  MeshPeer,
+  MeshPeerRole,
+  MeshEnrollmentToken,
+} from '@kite-vpn/types'
+
+export async function meshGetEngineState(): Promise<IpcResult<MeshEngineState>> {
+  return invoke<MeshEngineState>('mesh_get_engine_state', {})
+}
+
+export async function meshStart(): Promise<IpcResult<MeshEngineState>> {
+  return invoke<MeshEngineState>('mesh_start', {})
+}
+
+export async function meshStop(): Promise<IpcResult<MeshEngineState>> {
+  return invoke<MeshEngineState>('mesh_stop', {})
+}
+
+/** 当前网络元数据，未加入网络时 data 为 null。 */
+export async function meshGetNetwork(): Promise<IpcResult<MeshNetwork | null>> {
+  return invoke<MeshNetwork | null>('mesh_get_network', {})
+}
+
+export async function meshCreateNetwork(
+  name: string,
+  lighthouseEndpoint: string,
+): Promise<IpcResult<MeshNetwork>> {
+  return invoke<MeshNetwork>('mesh_create_network', { name, lighthouseEndpoint })
+}
+
+export async function meshGenerateEnrollmentToken(
+  peerName: string,
+  roles: MeshPeerRole[],
+  meshIp: string,
+): Promise<IpcResult<MeshEnrollmentToken>> {
+  return invoke<MeshEnrollmentToken>('mesh_generate_enrollment_token', {
+    peerName, roles, meshIp,
+  })
+}
+
+export async function meshJoinNetwork(token: string): Promise<IpcResult<MeshNetwork>> {
+  return invoke<MeshNetwork>('mesh_join_network', { token })
+}
+
+export async function meshListPeers(): Promise<IpcResult<MeshPeer[]>> {
+  return invoke<MeshPeer[]>('mesh_list_peers', {})
+}
+
+export async function meshRevokePeer(peerId: string): Promise<IpcResult<void>> {
+  return invoke<void>('mesh_revoke_peer', { peerId })
+}
+
+// ---------------------------------------------------------------------------
 // Mock 数据（浏览器开发模式用）
 // ---------------------------------------------------------------------------
 
