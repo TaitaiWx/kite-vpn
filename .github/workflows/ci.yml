@@ -57,10 +57,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Create placeholder sidecar
+      - name: Create placeholder sidecars
+        # Tauri 在 build 时校验 externalBin 路径存在，CI 不实际跑 nebula/mihomo，
+        # 所以只创建空文件占位让 cargo check 通过
         run: |
           mkdir -p apps/desktop/src-tauri/binaries apps/desktop/src-tauri/resources
           touch apps/desktop/src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu
+          touch apps/desktop/src-tauri/binaries/nebula-x86_64-unknown-linux-gnu
+          touch apps/desktop/src-tauri/binaries/nebula-cert-x86_64-unknown-linux-gnu
           touch apps/desktop/src-tauri/resources/.gitkeep
 
       - uses: dtolnay/rust-toolchain@stable
@@ -69,4 +73,27 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
-      - run: cd apps/desktop/src-tauri && cargo check
+      - name: cargo check
+        run: cd apps/desktop/src-tauri && cargo check
+
+      - name: cargo test (mesh + speed_test unit tests)
+        run: cd apps/desktop/src-tauri && cargo test --lib
+
+  backend-check:
+    name: Backend Check & Test
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/backend
+
+      - name: cargo check
+        run: cd apps/backend && cargo check
+
+      - name: cargo test (unit + integration)
+        run: cd apps/backend && cargo test
