@@ -26,8 +26,10 @@ import {
   RefreshCw,
   Loader2,
   Activity,
+  UserCircle,
 } from 'lucide-react'
 import { DEFAULT_HEALTH_CONFIG } from '@/stores/health'
+import { AccountSection } from '@/pages/Settings/AccountSection'
 import { clsx } from 'clsx'
 import type { AppConfig, ProxyMode, LogLevel } from '@kite-vpn/types'
 import { loadAppConfig, saveAppConfig } from '@/lib/ipc'
@@ -317,6 +319,7 @@ export function Settings() {
             { id: 'tun', icon: <Shield size={14} />, label: 'TUN' },
             { id: 'mixin', icon: <Server size={14} />, label: 'Mixin' },
             { id: 'health', icon: <Activity size={14} />, label: '健康检查' },
+            { id: 'account', icon: <UserCircle size={14} />, label: '账户' },
             { id: 'about', icon: <Info size={14} />, label: '关于' },
           ].map((item) => (
             <a
@@ -771,6 +774,9 @@ export function Settings() {
             )
           })()}
         </SettingsSection></div>
+
+        {/* ── Account (Phase 5 — Kite Backend) ──────────────────── */}
+        <div id="account"><AccountSection /></div>
 
         {/* ── About ───────────────────────────────────────────────── */}
         <div id="about"><SettingsSection

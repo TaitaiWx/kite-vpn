@@ -1,0 +1,45 @@
+[Unit]
+Description=Kite Backend (零知识账户 + 备份服务)
+Documentation=https://github.com/TaitaiWx/kite-vpn
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kite-backend
+Group=kite-backend
+ExecStart=/usr/local/bin/kite-backend
+EnvironmentFile=/etc/kite-backend/env
+WorkingDirectory=/var/lib/kite-backend
+
+Restart=always
+RestartSec=5s
+StartLimitBurst=5
+StartLimitIntervalSec=30s
+
+# 沙箱加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kite-backend
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# 资源限制
+LimitNOFILE=65535
+MemoryMax=512M
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

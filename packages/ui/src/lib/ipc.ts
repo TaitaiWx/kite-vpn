@@ -359,6 +359,56 @@ export async function meshRevokePeer(peerId: string): Promise<IpcResult<void>> {
 }
 
 // ---------------------------------------------------------------------------
+// Account (Phase 5 — Kite Backend 客户端)
+// ---------------------------------------------------------------------------
+
+export interface AccountState {
+  serverUrl: string
+  email: string
+  loggedIn: boolean
+}
+
+export interface BackupSummary {
+  kind: string
+  version: number
+  bytes: number
+  kdfAlgorithm: string
+  updatedAt: number
+}
+
+export async function accountSetServer(serverUrl: string): Promise<IpcResult<AccountState>> {
+  return invoke<AccountState>('account_set_server', { serverUrl })
+}
+
+export async function accountGetState(): Promise<IpcResult<AccountState>> {
+  return invoke<AccountState>('account_get_state', {})
+}
+
+export async function accountRequestLogin(email: string): Promise<IpcResult<void>> {
+  return invoke<void>('account_request_login', { email })
+}
+
+export async function accountRememberEmail(email: string): Promise<IpcResult<void>> {
+  return invoke<void>('account_remember_email', { email })
+}
+
+export async function accountVerifyLogin(token: string): Promise<IpcResult<AccountState>> {
+  return invoke<AccountState>('account_verify_login', { token })
+}
+
+export async function accountLogout(): Promise<IpcResult<void>> {
+  return invoke<void>('account_logout', {})
+}
+
+export async function accountBackupCaKey(passphrase: string): Promise<IpcResult<BackupSummary>> {
+  return invoke<BackupSummary>('account_backup_ca_key', { passphrase })
+}
+
+export async function accountRestoreCaKey(passphrase: string): Promise<IpcResult<void>> {
+  return invoke<void>('account_restore_ca_key', { passphrase })
+}
+
+// ---------------------------------------------------------------------------
 // Mock 数据（浏览器开发模式用）
 // ---------------------------------------------------------------------------
 
