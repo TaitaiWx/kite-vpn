@@ -1,0 +1,32 @@
+# Kite backend 数据卷 —— SQLite db + Nebula CA 证书
+#
+# 5GB 对单家庭 / 单团队来说够用十年。SQLite db 体积主要由 backups 表
+# 决定，每个用户最多 3 份 backup * 1MB = 3MB，所以 1k 用户也才 3GB。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kite-backend-data
+  namespace: kite
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # 不指定 storageClassName —— 用集群默认（k3s = local-path, EKS = gp3 等）
+---
+# Nebula PKI 证书 —— 由 nebula-cert 生成，放在 ./pki/ 后用 secret 装载
+# kubectl create secret generic kite-nebula-pki \
+#   --from-file=ca.crt --from-file=lighthouse.crt --from-file=lighthouse.key \
+#   --namespace=kite
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kite-nebula-pki-placeholder
+  namespace: kite
+  annotations:
+    note: |
+      这只是占位 manifest 提醒你 —— 实际证书请用 nebula-cert 生成后 kubectl create secret 注入。
+      详见 README.md "Nebula PKI" 章节。
+type: Opaque
+data: {}

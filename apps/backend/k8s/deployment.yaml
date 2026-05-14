@@ -1,0 +1,92 @@
+# Kite Backend Deployment —— 一个 Pod 跑 axum + nebula lighthouse
+#
+# replicas: 1 因为 SQLite 是单写者（多副本会数据撕裂）。
+# 横向扩展请先迁到 Postgres + 共享存储，但单家庭 / 单团队不需要。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kite-backend
+  namespace: kite
+  labels:
+    app.kubernetes.io/name: kite-backend
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  strategy:
+    # SQLite + PVC：必须先停旧 Pod 再起新 Pod（避免双写）
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kite-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kite-backend
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: kite-backend
+          image: ghcr.io/taitaiwx/kite-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8787
+              protocol: TCP
+            - name: nebula
+              containerPort: 4242
+              protocol: UDP
+          envFrom:
+            - secretRef:
+                name: kite-backend-env
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kite
+            - name: nebula-config
+              mountPath: /etc/kite/nebula.yaml
+              subPath: nebula.yaml
+              readOnly: true
+            - name: nebula-pki
+              mountPath: /etc/kite/pki
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              # Nebula 需要绑 UDP 4242 —— 但 4242 是 > 1024 的非特权端口，
+              # 所以不需要 NET_BIND_SERVICE。这里全 drop。
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kite-backend-data
+        - name: nebula-config
+          configMap:
+            name: kite-nebula-config
+        - name: nebula-pki
+          secret:
+            secretName: kite-nebula-pki
+            optional: false

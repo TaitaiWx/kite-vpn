@@ -1,8 +1,7 @@
 target/
-deploy.sh
+k8s/
 README.md
 *.md
 .env
 .env.*
-!.env.example
 tests/

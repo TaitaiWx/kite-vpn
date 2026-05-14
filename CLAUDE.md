@@ -116,12 +116,19 @@ When the engine is running, system proxy is set to `127.0.0.1:7890` (mihomo). If
 ### CREATE_NO_WINDOW on Windows
 Every `std::process::Command::new()` on Windows must set `creation_flags(0x08000000)` to suppress the console black flash. Use the `cmd()` helper in `commands/mod.rs`.
 
-### Tauri auto-update: dual endpoint + minisign
+### Tauri auto-update: dual endpoint + minisign + ed25519 transport sig
 `apps/desktop/src-tauri/tauri.conf.json` has TWO endpoints in priority order:
-1. `https://updates.kitevpn.app/api/updates/latest.json` (kite-backend `/api/updates/latest.json` — proxies/caches GitHub, can be hotfix-overridden via `KITE_UPDATE_SOURCE_URL`)
-2. `https://github.com/TaitaiWx/kite-vpn/releases/latest/download/latest.json` (GitHub Releases — fallback if backend is down)
+1. `https://updates.kitevpn.app/api/updates/latest.json` — backend proxy with 5min cache + ed25519 signature in `X-Kite-Signature` header (防 cache 被篡改)
+2. `https://github.com/TaitaiWx/kite-vpn/releases/latest/download/latest.json` — GitHub Releases fallback
 
-Tauri's updater tries them in order; if the first 404s / times out it falls through. Self-hosters can either point DNS for `updates.kitevpn.app` at their backend OR fork and replace the URL at build time. minisign pubkey is embedded; private key in CI as `TAURI_SIGNING_PRIVATE_KEY`. CD workflow at `.github/workflows/cd.yml`.
+Two independent signatures on different things:
+- **Tauri minisign** signs the `.tar.gz` update binary (verification baked into Tauri's updater). Private key in CI as `TAURI_SIGNING_PRIVATE_KEY`.
+- **Backend ed25519** signs the `latest.json` metadata (defense-in-depth, optional client-side verify). Key auto-generated on first start, persisted in `update_signing_key` table.
+
+Public ed25519 key fetched once via `GET /api/updates/pubkey`. Client-side verification of `X-Kite-Signature` is Phase 6 work; v0.2 just exposes the header.
+
+### Backend deployment is k8s, NOT shell / docker-compose
+The backend (`apps/backend/`) is deployed via `kubectl apply -k apps/backend/k8s/`. Manifests cover Namespace, Deployment, Service (HTTP + UDP NodePort for Nebula), Ingress (nginx-ingress + cert-manager + Let's Encrypt), PVC, ConfigMap (nebula.yaml), and template Secret. The Dockerfile multi-stage builds the binary + bundles the official Nebula release. CI workflow `.github/workflows/backend-image.yml` pushes `ghcr.io/taitaiwx/kite-backend:latest` + per-tag/sha images for amd64 + arm64.
 
 ## Testing
 

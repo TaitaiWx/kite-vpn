@@ -12,10 +12,11 @@
 use std::sync::Arc;
 
 use kite_backend::{
-    build_router, db,
+    admin, build_router, db,
     mailer::{SharedMailer, SmtpConfig, SmtpMailer, StdoutMailer},
     nebula::NebulaSupervisor,
     state::{AppConfig, AppState},
+    updates,
 };
 
 #[tokio::main]
@@ -43,6 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap_or(false);
 
     let db = db::connect(&database_url).await?;
+
+    // 启动时一次性任务：管理员 seed + update signing key 预热
+    admin::seed_admin_from_env(&db).await?;
+    let _ = updates::load_or_create_signing_key(&db).await?;
+
     let mailer: SharedMailer = build_mailer()?;
 
     let config = AppConfig {

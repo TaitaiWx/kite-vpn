@@ -1,0 +1,41 @@
+# 两个 Service：
+#   1. kite-backend (ClusterIP) —— HTTP，给 Ingress 反代用
+#   2. kite-nebula  (LoadBalancer) —— UDP 4242，外部 Mesh peer 直连入口
+#
+# Nebula UDP 必须用 externalTrafficPolicy: Local 保留 source IP，否则
+# NAT 穿透会失败（lighthouse 看到的全是 LB 内网 IP）。
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kite-backend
+  namespace: kite
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kite-backend
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kite-nebula
+  namespace: kite
+  annotations:
+    # 单节点 k3s：用 NodePort 暴露即可（云上集群改 LoadBalancer）
+    note: "云上集群用 LoadBalancer + externalTrafficPolicy: Local，单节点 k3s 留 NodePort 30042"
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: kite-backend
+  ports:
+    - name: nebula
+      port: 4242
+      targetPort: nebula
+      protocol: UDP
+      nodePort: 30042

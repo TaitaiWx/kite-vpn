@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kite-nebula-config
+  namespace: kite
+data:
+  # Nebula lighthouse 配置 —— 部署前编辑这一段，把 IP 段 / 端口 调成你想要的
+  nebula.yaml: |
+    pki:
+      ca: /etc/kite/pki/ca.crt
+      cert: /etc/kite/pki/lighthouse.crt
+      key: /etc/kite/pki/lighthouse.key
+    static_host_map: {}
+    lighthouse:
+      am_lighthouse: true
+      serve_dns: false
+      interval: 60
+    listen:
+      host: "::"
+      port: 4242
+      read_buffer: 104857600
+      write_buffer: 104857600
+    punchy:
+      punch: true
+      respond: true
+      delay: 1s
+    tun:
+      disabled: true
+    firewall:
+      outbound_action: drop
+      inbound_action: drop
+      conntrack:
+        tcp_timeout: 12m
+        udp_timeout: 3m
+        default_timeout: 10m
+      outbound:
+        - port: any
+          proto: any
+          host: any
+      inbound:
+        - port: any
+          proto: icmp
+          host: any
+    logging:
+      level: info
+      format: text
+    stats:
+      type: prometheus
+      listen: 127.0.0.1:8424
+      path: /metrics
+      namespace: kite_lighthouse
+      interval: 10s

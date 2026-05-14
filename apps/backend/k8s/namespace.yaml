@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kite
+  labels:
+    app.kubernetes.io/name: kite
+    app.kubernetes.io/part-of: kite-vpn
