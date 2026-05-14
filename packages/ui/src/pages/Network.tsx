@@ -155,11 +155,21 @@ function CreateNetworkDialog({ open, onClose }: CreateDialogProps) {
         </p>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">网络名称</label>
+            <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+              网络名称
+              <Tooltip text="只是给你自己看的标签，例『家庭网络』『工作设备』。不影响功能，可以中文。">
+                <span className="text-gray-500 cursor-help">ⓘ</span>
+              </Tooltip>
+            </label>
             <Input type="text" value={name} onChange={setName} placeholder="例：我的家庭网络" />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Lighthouse 地址</label>
+            <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+              Lighthouse 地址
+              <Tooltip text="你的 VPS 公网 IP / 域名 + 端口（默认 UDP 4242）。lighthouse 是 Mesh 的『灯塔』，帮设备穿透 NAT 找到彼此，不转发流量。部署用 ./apps/lighthouse/deploy.sh。">
+                <span className="text-gray-500 cursor-help">ⓘ</span>
+              </Tooltip>
+            </label>
             <Input
               type="text"
               value={endpoint}
@@ -339,11 +349,21 @@ function InvitePeerDialog({ open, onClose, defaultIp }: InviteDialogProps) {
             <p className="text-xs text-gray-400">填写新设备信息，Kite 会生成一次性加密邀请码。</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">设备名称</label>
+                <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                  设备名称
+                  <Tooltip text="标识用，例『iPhone』『家里 NAS』『公司笔记本』。会写进证书 CN，加入后在设备列表显示。">
+                    <span className="text-gray-500 cursor-help">ⓘ</span>
+                  </Tooltip>
+                </label>
                 <Input type="text" value={peerName} onChange={setPeerName} placeholder="例：iPhone / 家里 NAS / 公司笔记本" />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">内网 IP</label>
+                <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                  内网 IP
+                  <Tooltip text="该设备在 Mesh 内的虚拟 IP（CGNAT 网段 100.64.0.0/10）。owner 是 100.64.0.1，新设备从 100.64.0.2 开始递增。这个 IP 会写进证书，签发后不能改。">
+                    <span className="text-gray-500 cursor-help">ⓘ</span>
+                  </Tooltip>
+                </label>
                 <Input type="text" value={meshIp} onChange={setMeshIp} placeholder="100.64.0.2" />
                 <p className="text-[10px] text-gray-500 mt-1">
                   100.64.0.0/10 范围内，避免跟现有 peers 冲突。
@@ -424,22 +444,26 @@ export function NetworkPage() {
           出差时一样可以访问家里的 NAS，安全且开箱即用。
         </p>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="btn-primary text-sm py-2 px-4 inline-flex items-center gap-2"
-          >
-            <Plus size={16} />
-            创建网络（owner）
-          </button>
-          <button
-            type="button"
-            onClick={() => setJoinOpen(true)}
-            className="btn-secondary text-sm py-2 px-4 inline-flex items-center gap-2"
-          >
-            <UserPlus size={16} />
-            加入现有网络
-          </button>
+          <Tooltip text="本设备成为新 Mesh 网络的 owner：本地生成 CA 私钥（永远不传出去），有权签发新设备证书。CA 私钥很重要，丢了网络就锁死了，记得用 v0.2 的备份功能存到 Kite Backend。">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="btn-primary text-sm py-2 px-4 inline-flex items-center gap-2"
+            >
+              <Plus size={16} />
+              创建网络（owner）
+            </button>
+          </Tooltip>
+          <Tooltip text="已经有人邀请你了？把对方发来的邀请码粘贴进来，本设备会拿到一份签好的证书 + 私钥，自动加入对方的 Mesh 网络。">
+            <button
+              type="button"
+              onClick={() => setJoinOpen(true)}
+              className="btn-secondary text-sm py-2 px-4 inline-flex items-center gap-2"
+            >
+              <UserPlus size={16} />
+              加入现有网络
+            </button>
+          </Tooltip>
         </div>
         <CreateNetworkDialog open={createOpen} onClose={() => setCreateOpen(false)} />
         <JoinNetworkDialog open={joinOpen} onClose={() => setJoinOpen(false)} />
@@ -463,7 +487,7 @@ export function NetworkPage() {
         </div>
         <div className="flex items-center gap-2">
           {isOwner && (
-            <Tooltip text="生成一次性邀请码让新设备加入网络">
+            <Tooltip text="生成一次性加密邀请码（AES-256-GCM + base32）。新设备粘贴邀请码就能加入本网络。邀请码 10 分钟过期，单次使用，包含已签好的证书 + 私钥（不再次和 owner 交互）。">
               <button
                 type="button"
                 onClick={() => setInviteOpen(true)}
@@ -474,17 +498,19 @@ export function NetworkPage() {
               </button>
             </Tooltip>
           )}
-          <button
-            type="button"
-            onClick={() => (meshRunning ? void stopEngine() : void startEngine())}
-            className={clsx(
-              'text-xs py-1.5 px-3 inline-flex items-center gap-1.5',
-              meshRunning ? 'btn-secondary' : 'btn-primary',
-            )}
-          >
-            <Power size={14} />
-            {meshRunning ? '停止 Mesh' : '启动 Mesh'}
-          </button>
+          <Tooltip text={meshRunning ? '停止本机的 Nebula 进程。其他设备无法再通过 Mesh 访问本机，但你能恢复网络连接（如果之前被 Mesh 接管了 TUN）。' : '启动本机的 Nebula 进程，开始扫描 lighthouse + 跟其他 peer 握手。启动后 100.x.x.x 网段流量走 Mesh，其他流量走 mihomo。'}>
+            <button
+              type="button"
+              onClick={() => (meshRunning ? void stopEngine() : void startEngine())}
+              className={clsx(
+                'text-xs py-1.5 px-3 inline-flex items-center gap-1.5',
+                meshRunning ? 'btn-secondary' : 'btn-primary',
+              )}
+            >
+              <Power size={14} />
+              {meshRunning ? '停止 Mesh' : '启动 Mesh'}
+            </button>
+          </Tooltip>
         </div>
       </div>
 

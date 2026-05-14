@@ -1,0 +1,59 @@
+[package]
+name = "kite-backend"
+version = "0.1.0"
+edition = "2021"
+description = "Kite zero-knowledge backup + account service"
+license = "MIT"
+
+[lib]
+name = "kite_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kite-backend"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework (tokio 官方)
+axum = { version = "0.7", features = ["macros", "tracing"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["trace", "cors", "limit"] }
+
+# Database (SQLite, runtime queries 避免编译时 DB 依赖)
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "macros", "migrate", "chrono"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Auth / Crypto
+argon2 = "0.5"                  # 服务端验证 magic link token 时用（避免计时攻击）
+rand = "0.8"                    # 随机 token / nonce
+base64 = "0.22"                 # 编码 encrypted blob
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1"
+
+# Config
+dotenvy = "0.15"
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Email (SMTP for production, stub for dev)
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"] }
+
+[dev-dependencies]
+# Integration test helpers
+reqwest = { version = "0.12", features = ["json"] }
+tower = { version = "0.5", features = ["util"] }
+hyper = { version = "1", features = ["full"] }
