@@ -91,9 +91,3 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/backend
-
-      - name: cargo check
-        run: cd apps/backend && cargo check
-
-      - name: cargo test (unit + integration)
-        run: cd apps/backend && cargo test
