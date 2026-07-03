@@ -58,13 +58,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Create placeholder sidecars
-        # Tauri 在 build 时校验 externalBin 路径存在，CI 不实际跑 nebula/mihomo，
+        # Tauri 在 build 时校验 externalBin 路径存在，CI 不实际跑 mihomo，
         # 所以只创建空文件占位让 cargo check 通过
         run: |
           mkdir -p apps/desktop/src-tauri/binaries apps/desktop/src-tauri/resources
           touch apps/desktop/src-tauri/binaries/mihomo-x86_64-unknown-linux-gnu
-          touch apps/desktop/src-tauri/binaries/nebula-x86_64-unknown-linux-gnu
-          touch apps/desktop/src-tauri/binaries/nebula-cert-x86_64-unknown-linux-gnu
           touch apps/desktop/src-tauri/resources/.gitkeep
 
       - uses: dtolnay/rust-toolchain@stable

@@ -33,23 +33,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "deb",
-      "rpm",
-      "appimage",
-      "dmg",
-      "app",
-      "msi",
-      "nsis"
-    ],
-    "externalBin": [
-      "binaries/mihomo",
-      "binaries/nebula",
-      "binaries/nebula-cert"
-    ],
-    "resources": [
-      "resources/*"
-    ],
+    "targets": ["deb", "rpm", "appimage", "dmg", "app", "msi", "nsis"],
+    "externalBin": ["binaries/mihomo"],
+    "resources": ["resources/*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -68,16 +54,10 @@
     },
     "linux": {
       "deb": {
-        "depends": [
-          "libwebkit2gtk-4.1-0",
-          "libayatana-appindicator3-1"
-        ]
+        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1"]
       },
       "rpm": {
-        "depends": [
-          "webkit2gtk4.1",
-          "libayatana-appindicator-gtk3"
-        ]
+        "depends": ["webkit2gtk4.1", "libayatana-appindicator-gtk3"]
       },
       "appimage": {
         "bundleMediaFramework": true
