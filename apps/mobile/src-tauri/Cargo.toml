@@ -1,6 +1,6 @@
 [package]
 name = "kite-vpn-mobile"
-version = "1.0.1-beta.26"
+version = "1.0.1-beta.27"
 description = "Kite Mobile - Cross-platform proxy client for iOS & Android"
 authors = [""]
 edition = "2021"
