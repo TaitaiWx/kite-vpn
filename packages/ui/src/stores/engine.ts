@@ -47,6 +47,14 @@ interface EngineStore {
 
 const MAX_HISTORY = 60
 
+function toConnectionError(message: string | undefined, fallback: string): string {
+  return (message ?? fallback)
+    .replace(/启动引擎失败/g, '连接失败')
+    .replace(/重启引擎失败/g, '重新连接失败')
+    .replace(/引擎进程/g, '连接服务')
+    .replace(/引擎/g, '连接服务')
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -140,7 +148,7 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
         }
       }
     } else {
-      set({ state: { status: 'error', error: result.error ?? '启动失败' } })
+      set({ state: { status: 'error', error: toConnectionError(result.error, '连接失败') } })
     }
   },
 
@@ -186,7 +194,7 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
     if (result.success && result.data) {
       set({ state: result.data })
     } else {
-      set({ state: { status: 'error', error: result.error ?? '重启失败' } })
+      set({ state: { status: 'error', error: toConnectionError(result.error, '重新连接失败') } })
     }
   },
 
@@ -254,7 +262,7 @@ export const useEngineStore = create<EngineStore>()((set, get) => ({
             return // 重启成功，继续监控
           }
         }
-        set({ state: { status: 'error', error: `引擎进程已退出（已尝试重启 ${crashCount} 次）` } })
+        set({ state: { status: 'error', error: `连接服务已退出（已尝试重连 ${crashCount} 次）` } })
         get().stopWatchdog()
       }
     }, 5000)

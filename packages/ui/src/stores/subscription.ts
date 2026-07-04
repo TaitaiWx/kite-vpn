@@ -300,7 +300,7 @@ export const useSubscriptionStore = create<SubscriptionStore>()((set, get) => ({
         toast(`配置已写入，但热重载失败：${reloadResult.error ?? '未知'}`, 'warning')
       }
     } else {
-      toast(`配置已保存（${mergeResult.nodes.length} 个节点），启动引擎后生效`, 'success')
+      toast(`配置已保存（${mergeResult.nodes.length} 个节点），连接开启后生效`, 'success')
     }
   },
 }))

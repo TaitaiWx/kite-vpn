@@ -274,7 +274,7 @@ export default function App() {
             tunEnabled: nextEnabled,
             mixinEnabled: cfg.mixin?.enabled ?? false,
           })
-          toast(nextEnabled ? 'TUN 已启用，下次启动引擎生效' : 'TUN 已禁用', 'info')
+          toast(nextEnabled ? 'TUN 已启用，下次连接时生效' : 'TUN 已禁用', 'info')
         })()
       }))
       register(await listen('tray://toggle-mixin', () => {
@@ -294,7 +294,7 @@ export default function App() {
             tunEnabled: cfg.engineConfig.tun?.enabled ?? false,
             mixinEnabled: nextEnabled,
           })
-          toast(nextEnabled ? 'Mixin 已启用，下次启动引擎生效' : 'Mixin 已禁用', 'info')
+          toast(nextEnabled ? 'Mixin 已启用，下次连接时生效' : 'Mixin 已禁用', 'info')
         })()
       }))
       register(await listen<string>('tray://navigate', (e) => {
@@ -323,7 +323,7 @@ export default function App() {
     return () => { cancelled = true; unlisteners.forEach((fn) => fn()) }
   }, [])
 
-  // 首次启动检测：未完成过设置 + 引擎未运行 → 显示引导
+  // 首次启动检测：未完成过设置 + 当前未连接 → 显示引导
   useEffect(() => {
     const timer = setTimeout(() => {
       const setupDone = localStorage.getItem('kite_setup_done')
@@ -358,18 +358,18 @@ export default function App() {
       try {
         if (isRunning) {
           await stopEngine()
-          toast('引擎已停止', 'info')
+          toast('连接已断开', 'info')
         } else {
           await startEngine()
           const state = useEngineStore.getState().state
           if (state.status === 'error') {
-            toast(state.error ?? '引擎启动失败', 'error')
+            toast(state.error ?? '连接失败', 'error')
           } else {
-            toast('引擎已启动', 'success')
+            toast('连接已开启', 'success')
           }
         }
       } catch {
-        toast('引擎操作失败', 'error')
+        toast('连接操作失败', 'error')
       }
     })()
   }, [isRunning, startEngine, stopEngine])
@@ -432,7 +432,7 @@ export default function App() {
               )}
             >
               {isRunning ? <ZapOff className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
-              <span>{isTransitioning ? '…' : isRunning ? '停止' : '启动'}</span>
+              <span>{isTransitioning ? '…' : isRunning ? '断开' : '连接'}</span>
             </button>
           </div>
         </div>
@@ -492,7 +492,7 @@ export default function App() {
           <StatusBadge status={engineState.status} size="sm" />
 
           <button type="button" onClick={handleEngineToggle} disabled={isTransitioning}
-            aria-label={isRunning ? '停止代理引擎' : '启动代理引擎'}
+            aria-label={isRunning ? '断开连接' : '开启连接'}
             className={clsx(
               'flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-all',
               isRunning ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500',
@@ -500,7 +500,7 @@ export default function App() {
             )}
           >
             {isRunning ? <ZapOff className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
-            <span>{isTransitioning ? '…' : isRunning ? '关闭' : '开启'}</span>
+            <span>{isTransitioning ? '…' : isRunning ? '断开' : '连接'}</span>
           </button>
 
           <div className="w-px h-4 bg-border mx-0.5" />

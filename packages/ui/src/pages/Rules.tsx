@@ -428,7 +428,7 @@ export function Rules() {
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">规则</h1>
             {!hasRealData && view === 'table' && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary-500/15 text-primary-400">
-                默认模板 · 启动引擎后切换为实时规则
+                默认模板 · 连接开启后切换为实时规则
               </span>
             )}
           </div>
@@ -576,7 +576,7 @@ export function Rules() {
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col px-6 pt-2 pb-4">
           <div className="mb-2 text-[11px] text-gray-400 flex items-center gap-1.5">
-            <span>编辑 Mixin YAML。保存后自动深度合并到引擎配置，引擎运行时**热重载生效**（无需重启）。</span>
+            <span>编辑 Mixin YAML。保存后自动深度合并到运行配置，连接开启时热重载生效（无需重启）。</span>
           </div>
           <textarea
             value={yamlDraft}

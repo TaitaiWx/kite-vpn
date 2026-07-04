@@ -544,7 +544,7 @@ export function Subscriptions() {
       const res = await invoke<string>('import_local_clash_config', { sourcePath: path })
       setImportingPath(null)
       if (res.success) {
-        toast(`导入成功：${res.data ?? ''}。重启引擎生效。`, 'success')
+        toast(`导入成功：${res.data ?? ''}。重新连接后生效。`, 'success')
         setImportOpen(false)
       } else {
         toast(res.error ?? '导入失败', 'error')
@@ -770,7 +770,7 @@ export function Subscriptions() {
             </div>
 
             <div className="px-5 py-3 border-t border-border text-[11px] text-gray-400">
-              导入后将作为 Kite 的引擎基础配置；重启引擎后生效。订阅里的代理节点、规则、DNS 都会被引用。
+              导入后将作为 Kite 的基础配置；重新连接后生效。订阅里的代理节点、规则、DNS 都会被引用。
             </div>
           </div>
         </div>

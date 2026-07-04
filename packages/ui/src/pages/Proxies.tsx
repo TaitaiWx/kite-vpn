@@ -483,7 +483,7 @@ export function Proxies() {
     // 引擎未运行时强制 quick（real/heavy 需要 mihomo 路由）
     const mode: SpeedMode = engineStatus === 'running' ? speedMode : 'quick'
     if (engineStatus !== 'running' && speedMode !== 'quick') {
-      toast('Real / Heavy 模式需要先启动引擎，回退到 Quick 模式', 'warning')
+      toast('Real / Heavy 模式需要先开启连接，回退到 Quick 模式', 'warning')
     }
     await runTest(mode)
     toast('测速完成', 'success')

@@ -521,7 +521,7 @@ export function NetworkPage() {
       )}>
         <Cpu size={12} className={meshRunning ? 'text-emerald-400' : 'text-gray-500'} />
         <span className={meshRunning ? 'text-emerald-400' : 'text-gray-400'}>
-          Nebula 引擎 {meshRunning ? '运行中' : '已停止'}
+          Mesh 服务 {meshRunning ? '运行中' : '已停止'}
           {engine.pid > 0 && ` · PID ${engine.pid}`}
         </span>
         {engine.error && (

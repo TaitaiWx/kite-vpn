@@ -268,7 +268,7 @@ export function Settings() {
         <div>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">设置</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            应用程序与引擎配置
+            应用程序与连接配置
           </p>
         </div>
 
@@ -479,7 +479,7 @@ export function Settings() {
 
           <SettingsRow
             label="日志级别"
-            description="引擎运行日志的详细程度"
+            description="连接服务运行日志的详细程度"
             help="Debug 最详细但性能开销大；Info 推荐；Error 仅记录错误；Silent 关闭日志。"
           >
             <Select<LogLevel>
@@ -494,7 +494,7 @@ export function Settings() {
             <SettingsRow
               label="外部控制器"
               description="RESTful API 监听地址"
-              help="mihomo 的 RESTful API 监听地址，外部工具（如 Yacd/Clash Dashboard）可通过此地址管理引擎。"
+              help="mihomo 的 RESTful API 监听地址，外部工具（如 Yacd/Clash Dashboard）可通过此地址管理内核。"
             >
               <TextInput
                 value={engineConfig.externalController ?? ''}
@@ -673,11 +673,11 @@ export function Settings() {
         <div id="mixin"><SettingsSection
           icon={<Server size={16} />}
           title="Mixin"
-          description="用户自定义 YAML 片段，合并到最终引擎配置"
+          description="用户自定义 YAML 片段，合并到最终运行配置"
         >
           <SettingsRow
             label="启用 Mixin"
-            description="下次启动引擎时，将 YAML 深度合并到生成的配置"
+            description="下次连接时，将 YAML 深度合并到生成的配置"
             help="【配置覆盖机制，不是接入方式】Mixin 跟系统代理 / TUN 不在同一维度 —— 系统代理 / TUN 决定「流量怎么进 Kite」；Mixin 决定「进来后按什么配置走」。关掉这个开关，即使 Mixin 里写了内容也不会生效。"
           >
             <ToggleSwitch
@@ -807,9 +807,9 @@ export function Settings() {
           </SettingsRow>
 
           <SettingsRow
-            label="引擎版本"
+            label="内核版本"
             description="mihomo 内核版本"
-            help="底层代理引擎 mihomo (Clash.Meta) 的版本号。"
+            help="底层代理内核 mihomo (Clash.Meta) 的版本号。"
           >
             <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
               v1.18.0

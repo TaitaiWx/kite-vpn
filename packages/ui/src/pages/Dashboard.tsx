@@ -211,7 +211,7 @@ export function Dashboard() {
         <StatCard
           label="运行时间"
           value={formatDuration(state.uptime ?? 0)}
-          subValue={state.version ? `引擎 v${state.version}` : '引擎未启动'}
+          subValue={state.version ? `内核 v${state.version}` : '连接未开启'}
           icon={<Clock size={18} />}
           color="amber"
         />
@@ -267,13 +267,13 @@ export function Dashboard() {
 
         <InfoItem
           icon={<Cpu size={16} />}
-          label="引擎版本"
+          label="内核版本"
           value={
             state.version
               ? `mihomo v${state.version}`
               : state.status === 'running'
                 ? <span className="text-gray-400">获取中…</span>
-                : <span className="text-gray-400">启动后显示</span>
+                : <span className="text-gray-400">连接后显示</span>
           }
         />
 
