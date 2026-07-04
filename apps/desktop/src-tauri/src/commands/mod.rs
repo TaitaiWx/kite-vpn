@@ -142,15 +142,38 @@ pub(crate) fn get_mihomo_path(app: &AppHandle) -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     let sidecar_name = format!("mihomo-{}", target_triple);
 
-    // 1. Tauri sidecar（externalBin 打包的路径）
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let sidecar = resource_dir.join("binaries").join(&sidecar_name);
-        if sidecar.exists() {
-            return Ok(sidecar.to_string_lossy().to_string());
+    #[cfg(target_os = "windows")]
+    let bundled_name = "mihomo.exe";
+    #[cfg(not(target_os = "windows"))]
+    let bundled_name = "mihomo";
+
+    // 1. Tauri externalBin 在打包后会放到主程序同目录，并使用无 target triple 的文件名。
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            for name in [bundled_name, &sidecar_name] {
+                let sidecar = exe_dir.join(name);
+                if sidecar.exists() {
+                    return Ok(sidecar.to_string_lossy().to_string());
+                }
+            }
         }
     }
 
-    // 2. 开发模式下直接在 src-tauri/binaries/
+    // 2. 兼容旧包或资源目录布局。
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        for sidecar in [
+            resource_dir.join("binaries").join(&sidecar_name),
+            resource_dir.join("binaries").join(bundled_name),
+            resource_dir.join(&sidecar_name),
+            resource_dir.join(bundled_name),
+        ] {
+            if sidecar.exists() {
+                return Ok(sidecar.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 3. 开发模式下直接在 src-tauri/binaries/
     let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
         .join(&sidecar_name);
@@ -158,7 +181,7 @@ pub(crate) fn get_mihomo_path(app: &AppHandle) -> Result<String, String> {
         return Ok(dev_path.to_string_lossy().to_string());
     }
 
-    // 3. 回退到 PATH
+    // 4. 回退到 PATH
     let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
     if let Ok(o) = std::process::Command::new(which_cmd).arg("mihomo").output() {
         if o.status.success() {
@@ -169,7 +192,7 @@ pub(crate) fn get_mihomo_path(app: &AppHandle) -> Result<String, String> {
         }
     }
 
-    Err(format!("未找到 mihomo 引擎 ({})。请先运行 pnpm run build:engine 编译引擎。", sidecar_name))
+    Err(format!("连接服务组件缺失 ({})，请重新安装 Kite 或更新到最新版本。", sidecar_name))
 }
 
 pub(crate) fn setup_geo_databases(app: &AppHandle, config_dir: &std::path::Path) {
