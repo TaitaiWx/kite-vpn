@@ -81,7 +81,12 @@ jobs:
 
       - name: Sync app version from tag
         shell: bash
-        run: node scripts/sync-app-version.mjs "$GITHUB_REF_NAME"
+        run: |
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            node scripts/sync-app-version.mjs "$GITHUB_REF_NAME" --msi-compatible
+          else
+            node scripts/sync-app-version.mjs "$GITHUB_REF_NAME"
+          fi
 
       - uses: actions/setup-go@v5
         with:
