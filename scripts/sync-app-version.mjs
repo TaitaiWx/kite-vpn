@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const input = process.argv[2] ?? process.env.GITHUB_REF_NAME ?? process.env.npm_package_version;
 if (!input) {
@@ -22,10 +22,13 @@ if (msiCompatible && macosCompatible) {
   process.exit(1);
 }
 
-const packageVersion = msiCompatible
-  ? toMsiCompatibleVersion(requestedVersion)
-  : requestedVersion;
-const tauriVersion = macosCompatible ? toAppleBundleVersion(requestedVersion) : packageVersion;
+const appleBundleVersion = macosCompatible ? toAppleBundleVersion(requestedVersion) : null;
+const packageVersion = macosCompatible
+  ? appleBundleVersion
+  : msiCompatible
+    ? toMsiCompatibleVersion(requestedVersion)
+    : requestedVersion;
+const tauriVersion = macosCompatible ? appleBundleVersion : packageVersion;
 
 function toMsiCompatibleVersion(value) {
   const match = value.match(/^(\d+\.\d+\.\d+)(?:-([^+]+))?(?:\+.+)?$/);
@@ -92,9 +95,29 @@ for (const path of tomlFiles) {
   writeFileSync(path, next);
 }
 
-if (macosCompatible && tauriVersion !== packageVersion) {
+const cargoLockPackages = [
+  ['apps/desktop/src-tauri/Cargo.lock', 'kite-vpn-desktop'],
+  ['apps/mobile/src-tauri/Cargo.lock', 'kite-vpn-mobile'],
+];
+
+for (const [path, packageName] of cargoLockPackages) {
+  if (!existsSync(path)) continue;
+
+  const content = readFileSync(path, 'utf8');
+  const pattern = new RegExp(
+    `(\\[\\[package\\]\\]\\nname = "${packageName}"\\nversion = )"[^"]+"`,
+  );
+  if (!pattern.test(content)) {
+    console.error(`Could not find ${packageName} package version in ${path}`);
+    process.exit(1);
+  }
+  const next = content.replace(pattern, `$1"${packageVersion}"`);
+  writeFileSync(path, next);
+}
+
+if (macosCompatible && requestedVersion !== packageVersion) {
   console.log(
-    `Synced package versions to ${packageVersion}; Tauri bundle versions to ${tauriVersion}`,
+    `Synced macOS build versions to ${packageVersion} from ${requestedVersion}`,
   );
 } else {
   console.log(`Synced app versions to ${packageVersion}`);
