@@ -84,6 +84,8 @@ jobs:
         run: |
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             node scripts/sync-app-version.mjs "$GITHUB_REF_NAME" --msi-compatible
+          elif [[ "${{ matrix.target }}" == *"apple-darwin" ]]; then
+            node scripts/sync-app-version.mjs "$GITHUB_REF_NAME" --macos-compatible
           else
             node scripts/sync-app-version.mjs "$GITHUB_REF_NAME"
           fi
@@ -150,6 +152,38 @@ jobs:
           # 合并多平台 manifest 到同一个 latest.json
           updaterJsonKeepUniversal: true
           updaterJsonPreferNsis: false
+
+      - name: Publish versioned macOS DMG asset
+        if: endsWith(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE_VERSION="${VERSION%%-*}"
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) ARCH="aarch64" ;;
+            x86_64-apple-darwin) ARCH="x64" ;;
+            *)
+              echo "Unsupported macOS target: ${{ matrix.target }}"
+              exit 1
+              ;;
+          esac
+
+          SRC="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Kite_${BASE_VERSION}_${ARCH}.dmg"
+          DEST_DIR="release-assets"
+          DEST="${DEST_DIR}/Kite_${VERSION}_${ARCH}.dmg"
+
+          if [ ! -f "$SRC" ]; then
+            echo "Expected DMG not found: $SRC"
+            find "apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle" -maxdepth 3 -type f
+            exit 1
+          fi
+
+          mkdir -p "$DEST_DIR"
+          cp "$SRC" "$DEST"
+          gh release upload "$GITHUB_REF_NAME" "$DEST" --clobber
+          gh release delete-asset "$GITHUB_REF_NAME" "Kite_${BASE_VERSION}_${ARCH}.dmg" -y || true
 
   # ══ Android：APK 上传到同一个 release ═══════════════════════════════════
   android:
