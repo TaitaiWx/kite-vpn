@@ -1,6 +1,6 @@
 [package]
 name = "kite-vpn-desktop"
-version = "1.0.1-beta.30"
+version = "1.0.1-beta.31"
 description = "Kite Desktop - Cross-platform proxy client"
 authors = [""]
 edition = "2021"

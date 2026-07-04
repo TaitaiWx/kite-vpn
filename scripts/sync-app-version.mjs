@@ -105,7 +105,7 @@ for (const [path, packageName] of cargoLockPackages) {
 
   const content = readFileSync(path, 'utf8');
   const pattern = new RegExp(
-    `(\\[\\[package\\]\\]\\nname = "${packageName}"\\nversion = )"[^"]+"`,
+    `(\\[\\[package\\]\\]\\r?\\nname = "${packageName}"\\r?\\nversion = )"[^"]+"`,
   );
   if (!pattern.test(content)) {
     console.error(`Could not find ${packageName} package version in ${path}`);
