@@ -135,6 +135,74 @@ jobs:
           # libayatana-appindicator3-dev：Fedora / 大多数 Linux 桌面托盘标准
           # rpm 工具：tauri-bundler 生成 .rpm 时用到
 
+      - name: Prepare macOS signing and notarization
+        if: endsWith(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERT_B64="${APPLE_CERTIFICATE:-${CSC_LINK:-}}"
+          CERT_PASSWORD="${APPLE_CERTIFICATE_PASSWORD:-${CSC_KEY_PASSWORD:-}}"
+          if [ -z "$CERT_B64" ] || [ -z "$CERT_PASSWORD" ]; then
+            echo "Apple Developer ID certificate secrets are not configured."
+            exit 1
+          fi
+
+          CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/kite-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          if ! printf '%s' "$CERT_B64" | base64 --decode > "$CERT_PATH" 2>/dev/null; then
+            printf '%s' "$CERT_B64" | base64 -D > "$CERT_PATH"
+          fi
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          CERT_INFO="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep 'Developer ID Application' | head -n 1 || true)"
+          CERT_ID="$(printf '%s\n' "$CERT_INFO" | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [ -z "$CERT_ID" ] || [ "$CERT_ID" = "$CERT_INFO" ]; then
+            CERT_ID="$APPLE_SIGNING_IDENTITY_SECRET"
+          fi
+          if [ -z "$CERT_ID" ]; then
+            echo "Developer ID Application signing identity was not found in the imported certificate."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+          if [ -z "${APPLE_API_KEY_ID:-}" ] || [ -z "${APPLE_API_PRIVATE_KEY:-}" ] || [ -z "${APPLE_API_ISSUER:-}" ]; then
+            echo "Apple notarization API secrets are not fully configured."
+            exit 1
+          fi
+
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          if [[ "$APPLE_API_PRIVATE_KEY" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$API_KEY_PATH"
+          elif ! printf '%s' "$APPLE_API_PRIVATE_KEY" | base64 --decode > "$API_KEY_PATH" 2>/dev/null; then
+            printf '%s' "$APPLE_API_PRIVATE_KEY" | base64 -D > "$API_KEY_PATH"
+          fi
+          chmod 600 "$API_KEY_PATH"
+
+          echo "APPLE_API_KEY=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+
       - name: Build frontend
         run: pnpm -w run build
 
@@ -142,6 +210,13 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ env.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_API_ISSUER: ${{ env.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -152,6 +227,39 @@ jobs:
           # 合并多平台 manifest 到同一个 latest.json
           updaterJsonKeepUniversal: true
           updaterJsonPreferNsis: false
+
+      - name: Verify macOS code signature
+        if: endsWith(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE_VERSION="${VERSION%%-*}"
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              ARCH="aarch64"
+              ;;
+            x86_64-apple-darwin)
+              ARCH="x64"
+              ;;
+            *)
+              echo "Unsupported macOS target: ${{ matrix.target }}"
+              exit 1
+              ;;
+          esac
+
+          APP="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Kite.app"
+          if ! codesign --verify --deep --strict --verbose=4 "$APP"; then
+            gh release delete-asset "$GITHUB_REF_NAME" "Kite_${BASE_VERSION}_${ARCH}.dmg" -y || true
+            gh release delete-asset "$GITHUB_REF_NAME" "Kite_${ARCH}.app.tar.gz" -y || true
+            gh release delete-asset "$GITHUB_REF_NAME" "Kite_${ARCH}.app.tar.gz.sig" -y || true
+            exit 1
+          fi
+          codesign -dv --verbose=4 "$APP"
+          spctl -a -vvv -t open "$APP"
 
       - name: Publish versioned macOS DMG asset
         if: endsWith(matrix.target, 'apple-darwin')
