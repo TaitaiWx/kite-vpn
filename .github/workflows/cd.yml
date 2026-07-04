@@ -162,8 +162,14 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           BASE_VERSION="${VERSION%%-*}"
           case "${{ matrix.target }}" in
-            aarch64-apple-darwin) ARCH="aarch64" ;;
-            x86_64-apple-darwin) ARCH="x64" ;;
+            aarch64-apple-darwin)
+              ARCH="aarch64"
+              DMG_CHANNEL="macOS-Apple-Silicon"
+              ;;
+            x86_64-apple-darwin)
+              ARCH="x64"
+              DMG_CHANNEL="macOS-Intel"
+              ;;
             *)
               echo "Unsupported macOS target: ${{ matrix.target }}"
               exit 1
@@ -172,7 +178,7 @@ jobs:
 
           SRC="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Kite_${BASE_VERSION}_${ARCH}.dmg"
           DEST_DIR="release-assets"
-          DEST="${DEST_DIR}/Kite_${VERSION}_${ARCH}.dmg"
+          DEST="${DEST_DIR}/Kite_${VERSION}_${DMG_CHANNEL}.dmg"
 
           if [ ! -f "$SRC" ]; then
             echo "Expected DMG not found: $SRC"
