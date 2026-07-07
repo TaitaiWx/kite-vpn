@@ -21,6 +21,17 @@
 
 ## 快速开始
 
+### 下载安装
+
+从 GitHub Releases 下载对应平台安装包：
+
+- macOS Apple Silicon: `Kite_*_macOS-Apple-Silicon.dmg`
+- macOS Intel: `Kite_*_macOS-Intel.dmg`
+- Windows: `.exe` 或 `.msi`
+- Linux: `.AppImage` / `.deb` / `.rpm`
+
+macOS 包使用 Developer ID 签名，但当前未做 Apple notarization。首次打开时如果系统提示“Apple 无法验证 Kite”，这是 Gatekeeper 对未公证开源分发包的正常拦截，不代表安装包损坏。信任源码和发布来源后，可以在“系统设置 -> 隐私与安全”里选择“仍要打开”，或在 Finder 中右键点击 Kite 后选择“打开”。
+
 ### 环境要求
 
 - Node.js >= 20
@@ -83,7 +94,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-GitHub Actions 自动构建 6 个平台并创建 Release。无需配置任何 Secret。
+GitHub Actions 自动构建 6 个平台并创建 Release。macOS Release 包会进行 Developer ID 签名并校验 bundle 签名完整性，但不会提交 Apple notarization。
 
 ## 技术栈
 

@@ -27,10 +27,21 @@ jobs:
               })
               release = r.data
             } catch {
+              const body = [
+                `## Kite VPN ${tag}`,
+                '',
+                '跨平台代理客户端，内置多订阅聚合。',
+                '',
+                '### macOS 安装说明',
+                '',
+                'macOS 包使用 Developer ID 签名，但当前未提交 Apple notarization。首次打开时如果系统提示“Apple 无法验证 Kite”，这是 Gatekeeper 对未公证开源分发包的正常拦截，不代表安装包损坏。',
+                '',
+                '信任源码和发布来源后，可以在“系统设置 -> 隐私与安全”里选择“仍要打开”，或在 Finder 中右键点击 Kite 后选择“打开”。',
+              ].join('\n')
               const r = await github.rest.repos.createRelease({
                 owner: context.repo.owner, repo: context.repo.repo,
                 tag_name: tag, name: `Kite VPN ${tag}`,
-                body: `## Kite VPN ${tag}\n\n跨平台代理客户端，内置多订阅聚合。`,
+                body,
                 draft: false, prerelease: false,
               })
               release = r.data
